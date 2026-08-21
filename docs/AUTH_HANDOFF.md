@@ -2,7 +2,7 @@
 
 ## Scope
 
-This handoff records the Google Sign-In and authenticated API upgrade for the School Notice Broadcast System. The system remains split into two native Android applications, `app.receiver` and `app.sender`, with a Fastify/TypeScript backend connected to the real Firebase project `school-notice-systems`.
+This handoff records the Google Sign-In and authenticated API upgrade for the School Notice Broadcast System. The system remains split into two native Android applications, `app.receiver` and `app.sender`, with a Fastify/TypeScript backend connected to the real Firebase project `school-notics`.
 
 The authentication boundary is now:
 
@@ -57,7 +57,7 @@ The Android project could not be compiled in this sandbox because the repository
 
 The production Web OAuth client ID must be entered into `android/gradle.properties` as `GOOGLE_WEB_CLIENT_ID`. A Firebase Android app registration and matching `google-services.json` must exist for both `app.receiver` and `app.sender`; these files remain uncommitted. The backend must be deployed at a permanent HTTPS URL and that URL must replace `BACKEND_BASE_URL` in the shared Gradle properties.
 
-The Firebase Authentication provider for Google must be enabled in the `school-notice-systems` Firebase project. The Android test devices must use Google Play services and have a Google account permitted by the project’s authentication configuration.
+The Firebase Authentication provider for Google must be enabled in the `school-notics` Firebase project. The Android test devices must use Google Play services and have a Google account permitted by the project’s authentication configuration.
 
 ## Credential rotation requirement
 

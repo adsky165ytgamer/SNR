@@ -9,8 +9,8 @@ export function firebaseAdminApp(): App {
   if (getApps().length > 0) return getApp();
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   if (serviceAccountJson) return initializeApp({ credential: cert(JSON.parse(serviceAccountJson)) });
-  const projectId = process.env.GOOGLE_CLOUD_PROJECT;
-  return initializeApp({ credential: applicationDefault(), ...(projectId ? { projectId } : {}) });
+  const projectId = process.env.GOOGLE_CLOUD_PROJECT ?? "school-notics";
+  return initializeApp({ credential: applicationDefault(), projectId });
 }
 
 export function createFirebaseDependencies(): { store: ReceiverStore; fcm: FcmGateway; logNotice: (input: { noticeId: string; senderUid: string; receiverId: string; title: string; body: string; messageId: string; type: "TEST" }) => Promise<void> } {
