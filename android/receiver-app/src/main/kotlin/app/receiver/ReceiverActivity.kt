@@ -25,6 +25,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import app.receiver.auth.AuthenticatedIdentity
+import app.receiver.auth.FirebaseBootstrap
+import app.receiver.auth.GoogleAuthSession
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.chip.Chip
@@ -33,11 +36,7 @@ import com.google.android.material.textfield.TextInputLayout
 import com.google.firebase.FirebaseApp
 import com.google.firebase.installations.FirebaseInstallations
 import com.google.firebase.messaging.FirebaseMessaging
-import app.receiver.auth.AuthenticatedIdentity
-import app.receiver.auth.FirebaseBootstrap
-import app.receiver.auth.GoogleAuthSession
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -46,25 +45,26 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.TimeUnit
 
-/** Guided Receiver setup and local notice history dashboard. */
+/** NoticeFlow Receiver v1.1.0 Alpha: guided setup, inbox, and live device connection. */
 class ReceiverActivity : ComponentActivity() {
     private val identity by lazy { ReceiverIdentity(applicationContext) }
     private val authSession by lazy { GoogleAuthSession(this) }
     private var authIdentity: AuthenticatedIdentity? = null
+    private var activeSection = Section.HOME
+    private lateinit var content: LinearLayout
+    private lateinit var nav: LinearLayout
     private lateinit var statusChip: Chip
     private lateinit var statusText: TextView
-    private lateinit var stageText: TextView
-    private lateinit var diagnosticText: TextView
-    private lateinit var copyDiagnosticButton: MaterialButton
-    private lateinit var lastNoticeText: TextView
-    private lateinit var historyList: LinearLayout
-    private lateinit var clearHistoryButton: MaterialButton
-    private lateinit var connectButton: MaterialButton
-    private lateinit var nameInput: TextInputEditText
     private lateinit var emailInput: TextInputEditText
     private lateinit var passwordInput: TextInputEditText
-    private lateinit var authSummary: TextView
-    private lateinit var authButton: MaterialButton
+    private lateinit var nameInput: TextInputEditText
+    private lateinit var connectButton: MaterialButton
+    private var statusTitle = "Welcome to NoticeFlow"
+    private var statusDetail = "Follow the short setup to make this screen ready for live school notices."
+
+    private enum class Section(val label: String) {
+        HOME("Home"), SETUP("Setup"), INBOX("Inbox"), ABOUT("About")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,436 +72,363 @@ class ReceiverActivity : ComponentActivity() {
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         window.isNavigationBarContrastEnforced = false
-        setContentView(buildScreen())
         requestNotificationPermission()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "receiver-heartbeat", ExistingPeriodicWorkPolicy.UPDATE,
             PeriodicWorkRequestBuilder<ReceiverHeartbeatWorker>(15, TimeUnit.MINUTES).build(),
         )
-        refreshPresentation()
-        lifecycleScope.launch { refreshAuth() }
+        lifecycleScope.launch { authIdentity = runCatching { authSession.current() }.getOrNull() }
+        if (identity.hasCompletedOnboarding()) showApplication() else showOnboarding()
     }
 
     override fun onResume() {
         super.onResume()
-        if (::lastNoticeText.isInitialized) refreshPresentation()
+        if (::content.isInitialized && activeSection == Section.HOME) renderSection(Section.HOME)
     }
 
-    private fun buildScreen(): View {
+    private fun showOnboarding() {
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#F4F7F6"))
+            setBackgroundColor(Color.parseColor("#102E32"))
+            setPadding(dp(24), dp(24), dp(24), dp(30))
+        }
+        page.addView(label("NOTICEFLOW  /  RECEIVER", Color.parseColor("#9CE1D2"), 12f, Typeface.BOLD))
+        page.addView(label("A softer way to stay in the loop.", Color.WHITE, 31f, Typeface.BOLD).apply {
+            setPadding(0, dp(18), 0, 0)
+        })
+        page.addView(label("This device becomes a calm, dependable place for school notices to arrive.", Color.parseColor("#D9EFEB"), 16f, Typeface.NORMAL).apply {
+            setPadding(0, dp(12), 0, dp(20))
+        })
+        page.addView(onboardingCard("01  Secure the screen", "Use your Receiver Email/Password account. Your account authorizes the live connection."))
+        page.addView(onboardingCard("02  Give it a real name", "Choose a name such as Front Office, Class 8A, or Library Display so Senders know exactly where a notice goes."), margins(top = 12))
+        page.addView(onboardingCard("03  Let notices flow", "Connect once. NoticeFlow then keeps a private inbox on this device and refreshes its live connection."), margins(top = 12))
+        val start = MaterialButton(this).apply {
+            text = "Begin Receiver setup"
+            setOnClickListener {
+                identity.completeOnboarding()
+                showApplication()
+            }
+        }
+        page.addView(start, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(24) })
+        page.addView(label("v1.1.0 Alpha  ·  Crafted by ad_vibe_dev", Color.parseColor("#9CE1D2"), 12f, Typeface.BOLD).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(16), 0, 0)
+        })
+        applyInsets(page, page, null)
+        setContentView(page)
+        page.alpha = 0f
+        page.animate().alpha(1f).setDuration(360L).start()
+    }
+
+    private fun showApplication() {
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F6F7F7"))
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(28), dp(24), dp(24))
+            setPadding(dp(22), dp(24), dp(22), dp(18))
             setBackgroundColor(Color.parseColor("#102E32"))
         }
-        header.addView(label("NOTICEFLOW  /  RECEIVER", Color.parseColor("#9CE1D2"), 12f, Typeface.BOLD))
-        header.addView(label("Make this device the place notices arrive.", Color.WHITE, 28f, Typeface.BOLD).apply {
-            setPadding(0, dp(10), 0, 0)
-        })
-        header.addView(label("A short setup connects this screen to your school’s live notice network.", Color.parseColor("#D9EFEB"), 15f, Typeface.NORMAL).apply {
-            setPadding(0, dp(8), 0, 0)
-        })
+        header.addView(label("NOTICEFLOW  /  RECEIVER", Color.parseColor("#9CE1D2"), 11f, Typeface.BOLD))
+        header.addView(label("Your notice space", Color.WHITE, 25f, Typeface.BOLD).apply { setPadding(0, dp(7), 0, 0) })
+        header.addView(label(identity.name() ?: "Name this device in Setup", Color.parseColor("#D9EFEB"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(4), 0, 0) })
         page.addView(header)
+        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        page.addView(ScrollView(this).apply { addView(content) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        nav = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setBackgroundColor(Color.WHITE)
+        }
+        Section.entries.forEach { section ->
+            nav.addView(MaterialButton(this).apply {
+                text = section.label
+                isAllCaps = false
+                setOnClickListener { renderSection(section) }
+            }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = if (section == Section.HOME) 0 else dp(5) })
+        }
+        page.addView(nav)
+        applyInsets(page, header, nav)
+        setContentView(page)
+        renderSection(activeSection)
+    }
 
-        val body = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(34))
+    private fun renderSection(section: Section) {
+        activeSection = section
+        content.removeAllViews()
+        navButtons(section)
+        when (section) {
+            Section.HOME -> renderHome()
+            Section.SETUP -> renderSetup()
+            Section.INBOX -> renderInbox()
+            Section.ABOUT -> renderAbout()
         }
-        val setupRail = label("1  ACCOUNT     2  DEVICE NAME     3  CONNECT", Color.parseColor("#0E5D5A"), 11f, Typeface.BOLD).apply {
-            setPadding(dp(4), 0, 0, dp(12))
+        content.alpha = 0f
+        content.translationY = dp(8).toFloat()
+        content.animate().alpha(1f).translationY(0f).setDuration(220L).start()
+    }
+
+    private fun navButtons(selected: Section) {
+        Section.entries.forEachIndexed { index, section ->
+            val button = nav.getChildAt(index) as MaterialButton
+            button.setTextColor(Color.parseColor(if (section == selected) "#FFFFFF" else "#0E5D5A"))
+            button.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (section == selected) "#0E5D5A" else "#E7F4F0"))
         }
-        body.addView(setupRail)
+    }
+
+    private fun renderHome() {
+        val body = sectionBody()
         statusChip = Chip(this).apply {
+            text = readinessLabel()
             isClickable = false
-            chipBackgroundColor = ColorStateList.valueOf(Color.parseColor("#D9F2EC"))
+            chipBackgroundColor = ColorStateList.valueOf(Color.parseColor("#D8F3EE"))
             setTextColor(Color.parseColor("#0E5D5A"))
-            text = "Preparing setup"
         }
         body.addView(statusChip)
-        statusText = label("Sign in, name this Receiver, then connect it to the live backend.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply {
-            setPadding(dp(2), dp(10), dp(2), dp(4))
-        }
+        statusText = label(statusDetailForHome(), Color.parseColor("#526168"), 15f, Typeface.NORMAL).apply { setPadding(0, dp(10), 0, dp(16)) }
         body.addView(statusText)
-        stageText = label("ACCOUNT SETUP", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD).apply {
-            setPadding(dp(2), 0, 0, dp(16))
-        }
-        body.addView(stageText)
-
-        body.addView(sectionCard("STEP 1  ·  SECURE ACCOUNT", authPanel(), 14))
-        body.addView(sectionCard("STEP 2  ·  NAME THIS DEVICE", deviceSetupPanel(), 14))
-        body.addView(sectionCard("STEP 3  ·  CONNECT TO LIVE NOTICES", connectionPanel(), 14))
-        body.addView(sectionCard("NOTICE INBOX", noticePanel(), 0))
-        body.addView(label("BACKEND  ·  ${BackendClient.endpointLabel()}", Color.parseColor("#76858A"), 11f, Typeface.NORMAL).apply {
-            setPadding(dp(4), dp(16), dp(4), 0)
-        })
-        page.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-
-        ViewCompat.setOnApplyWindowInsetsListener(page) { _, insets ->
-            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            header.setPadding(dp(24) + safe.left, dp(28) + safe.top, dp(24) + safe.right, dp(24))
-            body.setPadding(dp(20) + safe.left, dp(20), dp(20) + safe.right, dp(34) + safe.bottom)
-            insets
-        }
-        ViewCompat.requestApplyInsets(page)
-        body.post {
-            for (index in 0 until body.childCount) {
-                val child = body.getChildAt(index)
-                child.alpha = 0f
-                child.translationY = dp(12).toFloat()
-                child.animate().alpha(1f).translationY(0f).setStartDelay(index * 45L).setDuration(260L).start()
-            }
-        }
-        return page
+        body.addView(featureCard("Your next move", nextMove(), "Open Setup to complete the account, device name, and connection steps."))
+        val latest = identity.noticeHistory().firstOrNull()
+        body.addView(featureCard("Latest notice", latest?.title ?: "Nothing new yet", latest?.body ?: "Your incoming notices will appear here after the Sender delivers them."), margins(top = 14))
+        body.addView(featureCard("Connection identity", identity.name() ?: "Unnamed Receiver", "Device ID: ${identity.receiverId().take(8)}…  ·  ${if (authIdentity == null) "Account not signed in" else "Account connected"}"), margins(top = 14))
+        content.addView(body)
     }
 
-    private fun sectionCard(title: String, content: View, marginBottom: Int): MaterialCardView = card().apply {
+    private fun renderSetup() {
+        val body = sectionBody()
+        body.addView(sectionTitle("Make this Receiver real", "Three small steps establish an authenticated, named connection."))
+        body.addView(setupAccountCard(), margins(top = 14))
+        body.addView(setupNameCard(), margins(top = 14))
+        body.addView(setupConnectCard(), margins(top = 14))
+        content.addView(body)
+    }
+
+    private fun setupAccountCard(): MaterialCardView = card().apply {
         addView(LinearLayout(this@ReceiverActivity).apply {
             orientation = LinearLayout.VERTICAL
-            addView(label(title, Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD).apply {
-                setPadding(dp(18), dp(18), dp(18), dp(2))
-            })
-            addView(content)
-        })
-        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            this.bottomMargin = dp(marginBottom)
-        }
-    }
-
-    private fun authPanel(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(18), dp(8), dp(18), dp(18))
-        authSummary = label("Use the Email/Password provider enabled in school-notics.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply {
-            setPadding(0, dp(6), 0, dp(10))
-        }
-        addView(authSummary)
-        val emailLayout = TextInputLayout(this@ReceiverActivity).apply {
-            hint = "Account email"
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-        }
-        emailInput = TextInputEditText(this@ReceiverActivity).apply {
-            setSingleLine()
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-        }
-        emailLayout.addView(emailInput)
-        addView(emailLayout)
-        val passwordLayout = TextInputLayout(this@ReceiverActivity).apply {
-            hint = "Password"
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE
-        }
-        passwordInput = TextInputEditText(this@ReceiverActivity).apply {
-            setSingleLine()
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        passwordLayout.addView(passwordInput)
-        addView(passwordLayout, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
-        authButton = MaterialButton(this@ReceiverActivity).apply {
-            text = "Sign in securely"
-            setOnClickListener { signInWithEmail() }
-        }
-        addView(authButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(14) })
-        val actions = LinearLayout(this@ReceiverActivity).apply { orientation = LinearLayout.HORIZONTAL }
-        actions.addView(MaterialButton(this@ReceiverActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "Create account"
-            setOnClickListener { createAccount() }
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        actions.addView(MaterialButton(this@ReceiverActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "Reset password"
-            setOnClickListener { resetPassword() }
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(8) })
-        addView(actions, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
-    }
-
-    private fun deviceSetupPanel(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(18), dp(8), dp(18), dp(18))
-        addView(label("Choose a name people will recognize in the Sender app.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply {
-            setPadding(0, dp(6), 0, dp(10))
-        })
-        val nameLayout = TextInputLayout(this@ReceiverActivity).apply {
-            hint = "Device name"
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            helperText = "Examples: Front Office, Class 8A, Library Display"
-        }
-        nameInput = TextInputEditText(this@ReceiverActivity).apply {
-            setText(identity.name().orEmpty())
-            setSingleLine()
-            filters = arrayOf(InputFilter.LengthFilter(60))
-        }
-        nameLayout.addView(nameInput)
-        addView(nameLayout)
-        addView(label("Device ID  ·  ${identity.receiverId()}", Color.parseColor("#76858A"), 11f, Typeface.NORMAL).apply {
-            setPadding(0, dp(10), 0, dp(6))
-        })
-        addView(MaterialButton(this@ReceiverActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "Copy device ID"
-            setOnClickListener {
-                (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                    .setPrimaryClip(ClipData.newPlainText("Receiver ID", identity.receiverId()))
-                text = "Device ID copied"
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            addView(label("1  ·  ACCOUNT", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
+            addView(label(authIdentity?.let { "Signed in as ${it.email ?: "Receiver account"}." } ?: "Use the Email/Password account enabled in school-notics.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(12)) })
+            if (authIdentity == null) {
+                emailInput = emailField("Receiver email")
+                passwordInput = passwordField()
+                addView(outlinedInput("Receiver email", emailInput))
+                addView(outlinedInput("Password", passwordInput), margins(top = 10))
+                addView(primaryButton("Sign in securely") { signInWithEmail() }, margins(top = 14))
+                val row = LinearLayout(this@ReceiverActivity).apply { orientation = LinearLayout.HORIZONTAL }
+                row.addView(secondaryButton("Create account") { createAccount() }, LinearLayout.LayoutParams(0, dp(46), 1f))
+                row.addView(secondaryButton("Reset password") { resetPassword() }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { leftMargin = dp(8) })
+                addView(row, margins(top = 8))
+            } else {
+                addView(secondaryButton("Sign out") { signOut() }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)))
             }
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-    }
-
-    private fun connectionPanel(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(18), dp(8), dp(18), dp(18))
-        addView(label("When you connect, NoticeFlow requests a live FCM push token and registers this named device.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply {
-            setPadding(0, dp(6), 0, dp(12))
         })
-        connectButton = MaterialButton(this@ReceiverActivity).apply {
-            text = "Connect this Receiver"
-            setOnClickListener { registerReceiver() }
-        }
-        addView(connectButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)))
-        diagnosticText = label("", Color.parseColor("#8D3030"), 13f, Typeface.NORMAL).apply {
-            visibility = View.GONE
-            setPadding(dp(4), dp(10), dp(4), dp(4))
-        }
-        addView(diagnosticText)
-        copyDiagnosticButton = MaterialButton(this@ReceiverActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "Copy diagnostics"
-            visibility = View.GONE
-            setOnClickListener {
-                (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                    .setPrimaryClip(ClipData.newPlainText("Receiver diagnostics", diagnosticText.text))
-                text = "Diagnostics copied"
-            }
-        }
-        addView(copyDiagnosticButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
     }
 
-    private fun noticePanel(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(18), dp(8), dp(18), dp(18))
-        lastNoticeText = label("No notice has been received on this device yet.", Color.parseColor("#526168"), 15f, Typeface.NORMAL).apply {
-            setPadding(0, dp(8), 0, dp(12))
-        }
-        addView(lastNoticeText)
-        historyList = LinearLayout(this@ReceiverActivity).apply { orientation = LinearLayout.VERTICAL }
-        addView(historyList)
-        clearHistoryButton = MaterialButton(this@ReceiverActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "Clear local history"
-            setOnClickListener {
-                identity.clearNoticeHistory()
-                renderNoticeHistory()
+    private fun setupNameCard(): MaterialCardView = card().apply {
+        addView(LinearLayout(this@ReceiverActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            addView(label("2  ·  DEVICE NAME", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
+            addView(label("This is the name the Sender sees. Keep it human and unmistakable.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(12)) })
+            nameInput = TextInputEditText(this@ReceiverActivity).apply {
+                setText(identity.name().orEmpty())
+                setSingleLine()
+                filters = arrayOf(InputFilter.LengthFilter(60))
             }
+            addView(outlinedInput("Examples: Front Office, Class 8A", nameInput, "Saved when you connect"))
+            addView(label("Private device ID  ·  ${identity.receiverId()}", Color.parseColor("#76858A"), 11f, Typeface.NORMAL).apply { setPadding(0, dp(10), 0, dp(4)) })
+            addView(secondaryButton("Copy device ID") {
+                (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Receiver ID", identity.receiverId()))
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)))
+        })
+    }
+
+    private fun setupConnectCard(): MaterialCardView = card().apply {
+        addView(LinearLayout(this@ReceiverActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            addView(label("3  ·  LIVE CONNECTION", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
+            addView(label("NoticeFlow requests a real FCM token and registers this named screen with the live backend.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(12)) })
+            connectButton = primaryButton(if (identity.lastRegisteredAt() > 0L) "Refresh live connection" else "Connect this Receiver") { registerReceiver() }
+            addView(connectButton)
+        })
+    }
+
+    private fun renderInbox() {
+        val body = sectionBody()
+        body.addView(sectionTitle("Notice inbox", "Notices are kept locally on this device so they remain visible after the alert disappears."))
+        val notices = identity.noticeHistory()
+        if (notices.isEmpty()) {
+            body.addView(featureCard("The inbox is quiet", "No notices yet", "Connect this Receiver, then use Sender to deliver the first message."), margins(top = 14))
+        } else {
+            notices.forEach { notice -> body.addView(noticeCard(notice), margins(top = 10)) }
+            body.addView(secondaryButton("Clear local inbox") { identity.clearNoticeHistory(); renderSection(Section.INBOX) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)).apply { topMargin = dp(16) })
         }
-        addView(clearHistoryButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
+        content.addView(body)
+    }
+
+    private fun renderAbout() {
+        val body = sectionBody()
+        body.addView(sectionTitle("NoticeFlow Receiver", "A focused receiving space for reliable school communication."))
+        body.addView(featureCard("v1.1.0 Alpha", "Built for deliberate delivery", "This Alpha release introduces guided onboarding, separated sections, local inbox history, and a calmer interface."), margins(top = 14))
+        body.addView(featureCard("Created by", "ad_vibe_dev", "NoticeFlow is designed as a proprietary school communication product."), margins(top = 14))
+        body.addView(featureCard("License and access", "Proprietary — not open source", "No permission is granted to copy, redistribute, reverse engineer, or publish this application or its source without written authorization from the creator."), margins(top = 14))
+        body.addView(secondaryButton("Replay introduction") { identity.resetOnboarding(); showOnboarding() }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)).apply { topMargin = dp(16) })
+        content.addView(body)
+    }
+
+    private fun signInWithEmail() = lifecycleScope.launch {
+        val result = runCatching { authSession.signInWithEmail(emailInput.text?.toString().orEmpty(), passwordInput.text?.toString().orEmpty()) }
+        result.onSuccess { authIdentity = it; setStatus("Account connected", "Your Receiver account is verified. Next, name this device and connect it."); renderSection(Section.SETUP) }
+            .onFailure { setStatus("Sign-in needs attention", it.message ?: "Firebase authentication did not complete."); renderSection(Section.SETUP) }
+    }
+
+    private fun createAccount() = lifecycleScope.launch {
+        val result = runCatching { authSession.createEmailAccount(emailInput.text?.toString().orEmpty(), passwordInput.text?.toString().orEmpty()) }
+        result.onSuccess { authIdentity = it; setStatus("Account created", "Choose a device name, then connect this Receiver."); renderSection(Section.SETUP) }
+            .onFailure { setStatus("Could not create account", it.message ?: "Firebase authentication did not complete."); renderSection(Section.SETUP) }
+    }
+
+    private fun resetPassword() = lifecycleScope.launch {
+        val result = runCatching { authSession.sendPasswordReset(emailInput.text?.toString().orEmpty()) }
+        setStatus(if (result.isSuccess) "Reset email sent" else "Reset needs attention", result.exceptionOrNull()?.message ?: "Check your inbox, set a new password, then return here.")
+        renderSection(Section.SETUP)
+    }
+
+    private fun signOut() = lifecycleScope.launch {
+        authSession.signOut()
+        authIdentity = null
+        setStatus("Signed out", "Sign in again before connecting or refreshing this Receiver.")
+        renderSection(Section.SETUP)
     }
 
     private fun registerReceiver() = lifecycleScope.launch {
-        val signedIn = authIdentity
-        if (signedIn == null) {
-            statusChip.text = "Account required"
-            statusText.text = "Complete Step 1 before connecting this Receiver."
-            stageText.text = "ACCOUNT SETUP"
-            return@launch
-        }
-        val chosenName = nameInput.text?.toString()?.trim().orEmpty()
-        if (chosenName.isBlank()) {
-            statusChip.text = "Name required"
-            statusText.text = "Choose a device name so the Sender can identify this screen."
-            stageText.text = "DEVICE NAME"
-            nameInput.requestFocus()
-            return@launch
-        }
-        identity.setName(chosenName)
-        clearDiagnostic()
+        if (authIdentity == null) { setStatus("Account required", "Complete Step 1 before connecting this Receiver."); renderSection(Section.SETUP); return@launch }
+        val name = nameInput.text?.toString()?.trim().orEmpty()
+        if (name.isBlank()) { setStatus("Device name required", "Choose a recognizable name in Step 2 before connecting."); renderSection(Section.SETUP); return@launch }
+        identity.setName(name)
         connectButton.isEnabled = false
+        connectButton.text = "Connecting…"
         try {
-            setConnecting("Checking secure backend", "Confirming the live backend is reachable…")
             check(BackendClient.isConfigured()) { "A reachable HTTPS backend URL has not been configured." }
             withContext(Dispatchers.IO) { BackendClient.get("/health") }
-            setConnecting("Preparing Firebase", "Creating this device’s Firebase installation…")
             FirebaseBootstrap.ensureInitialized(this@ReceiverActivity)
             check(FirebaseApp.getApps(this@ReceiverActivity).isNotEmpty()) { "Firebase configuration is missing for app.receiver." }
             check(FirebaseInstallations.getInstance().id.await().isNotBlank()) { "Firebase could not create a device installation." }
-            setConnecting("Requesting push token", "Requesting the real FCM token for this device…")
-            FirebaseMessaging.getInstance().isAutoInitEnabled = true
             val token = FirebaseMessaging.getInstance().token.await()
             check(token.isNotBlank()) { "Firebase returned an empty FCM token." }
-            setConnecting("Registering device", "Saving ${identity.name()} with the school backend…")
             withContext(Dispatchers.IO) {
                 BackendClient.post("/api/v1/receivers/register", JSONObject()
                     .put("receiverId", identity.receiverId())
                     .put("name", identity.name())
                     .put("fcmToken", token)
-                    .put("appVersion", packageManager.getPackageInfo(packageName, 0).versionName),
-                    signedIn.idToken,
-                )
+                    .put("appVersion", packageManager.getPackageInfo(packageName, 0).versionName), authIdentity!!.idToken)
             }
             identity.recordRegistered()
-            statusChip.text = "Receiver connected"
-            statusText.text = "${identity.name()} is live. The Sender can now deliver notices here."
-            stageText.text = "READY FOR NOTICES"
-            connectButton.text = "Refresh registration"
+            setStatus("Receiver connected", "${identity.name()} is ready. New notices will appear in Inbox.")
+            renderSection(Section.HOME)
         } catch (error: Throwable) {
-            statusChip.text = "Connection needs attention"
-            statusText.text = "The connection stopped before registration completed."
-            stageText.text = "ACTION REQUIRED"
-            connectButton.text = "Try again"
-            showDiagnostic(error)
-        } finally {
-            connectButton.isEnabled = true
+            setStatus("Connection needs attention", error.message ?: "The connection stopped before registration completed.")
+            renderSection(Section.SETUP)
         }
     }
 
-    private fun signInWithEmail(): Job = lifecycleScope.launch {
-        setAuthBusy(true, "Signing in…")
-        runCatching { authSession.signInWithEmail(emailInput.text?.toString().orEmpty(), passwordInput.text?.toString().orEmpty()) }
-            .onSuccess { completeAuthentication(it) }
-            .onFailure { showAuthError(it) }
-            .also { setAuthBusy(false, if (authIdentity == null) "Sign in securely" else "Sign out") }
+    private fun readinessLabel(): String = when {
+        !BackendClient.isConfigured() -> "Backend URL needed"
+        authIdentity == null -> "Account required"
+        identity.name().isNullOrBlank() -> "Name this device"
+        identity.lastRegisteredAt() <= 0L -> "Ready to connect"
+        else -> "Receiver live"
     }
 
-    private fun createAccount(): Job = lifecycleScope.launch {
-        setAuthBusy(true, "Creating account…")
-        runCatching { authSession.createEmailAccount(emailInput.text?.toString().orEmpty(), passwordInput.text?.toString().orEmpty()) }
-            .onSuccess { completeAuthentication(it) }
-            .onFailure { showAuthError(it) }
-            .also { setAuthBusy(false, if (authIdentity == null) "Sign in securely" else "Sign out") }
+    private fun nextMove(): String = when {
+        authIdentity == null -> "Sign in to your Receiver account"
+        identity.name().isNullOrBlank() -> "Give this device a name"
+        identity.lastRegisteredAt() <= 0L -> "Connect to live notices"
+        else -> "You are ready for notices"
     }
 
-    private fun resetPassword(): Job = lifecycleScope.launch {
-        setAuthBusy(true, "Sending reset email…")
-        runCatching { authSession.sendPasswordReset(emailInput.text?.toString().orEmpty()) }
-            .onSuccess {
-                authSummary.text = "Password reset email sent. Check ${emailInput.text}."
-                statusChip.text = "Reset email sent"
-                statusText.text = "Set a new password, then return to complete setup."
-            }
-            .onFailure { showAuthError(it) }
-            .also { setAuthBusy(false, "Sign in securely") }
+    private fun statusDetailForHome(): String = if (identity.lastRegisteredAt() > 0L) {
+        "${identity.name() ?: "This device"} last registered ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(identity.lastRegisteredAt()))}."
+    } else statusDetail
+
+    private fun setStatus(title: String, detail: String) {
+        statusTitle = title
+        statusDetail = detail
+        if (::statusChip.isInitialized) statusChip.text = title
+        if (::statusText.isInitialized) statusText.text = detail
     }
 
-    private fun completeAuthentication(identity: AuthenticatedIdentity) {
-        authIdentity = identity
-        authSummary.text = "${identity.authMethod}: ${identity.email ?: "account"}. Now choose a device name."
-        authButton.text = "Sign out"
-        authButton.setOnClickListener { signOut() }
-        statusChip.text = "Account connected"
-        statusText.text = "Account verified. Choose a name for this Receiver, then connect it."
-        stageText.text = "DEVICE NAME"
+    private fun sectionBody(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(20), dp(20), dp(20), dp(24))
     }
 
-    private fun showAuthError(error: Throwable) {
-        authSummary.text = error.message ?: "Firebase authentication did not complete."
-        statusChip.text = "Authentication failed"
-        statusText.text = "Check the account details, then try again."
-        stageText.text = "ACCOUNT SETUP"
+    private fun sectionTitle(title: String, detail: String) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(label(title, Color.parseColor("#102E32"), 26f, Typeface.BOLD))
+        addView(label(detail, Color.parseColor("#526168"), 15f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, 0) })
     }
 
-    private fun setAuthBusy(busy: Boolean, buttonText: String) {
-        authButton.isEnabled = !busy
-        authButton.text = buttonText
-        if (::emailInput.isInitialized) emailInput.isEnabled = !busy
-        if (::passwordInput.isInitialized) passwordInput.isEnabled = !busy
-    }
-
-    private fun signOut(): Job = lifecycleScope.launch {
-        authSession.signOut()
-        authIdentity = null
-        authSummary.text = "Sign in with the Email/Password account enabled in school-notics."
-        authButton.text = "Sign in securely"
-        authButton.setOnClickListener { signInWithEmail() }
-        statusChip.text = "Signed out"
-        statusText.text = "Sign in again to manage this Receiver."
-        stageText.text = "ACCOUNT SETUP"
-    }
-
-    private suspend fun refreshAuth() {
-        runCatching { authSession.current() }.onSuccess { current ->
-            authIdentity = current
-            if (current != null && ::authSummary.isInitialized) {
-                authSummary.text = "${current.authMethod}: ${current.email ?: "account"}. Choose a device name, then connect."
-                authButton.text = "Sign out"
-                authButton.setOnClickListener { signOut() }
-            }
-        }
-    }
-
-    private fun refreshPresentation() {
-        val registeredAt = identity.lastRegisteredAt()
-        val firebaseReady = runCatching { FirebaseBootstrap.ensureInitialized(this); true }.getOrDefault(false)
-        when {
-            !BackendClient.isConfigured() -> { statusChip.text = "Backend URL needed"; statusText.text = "This build needs its reachable HTTPS backend URL before it can connect."; stageText.text = "CONFIGURATION" }
-            !firebaseReady -> { statusChip.text = "Firebase setup needed"; statusText.text = "Firebase configuration is missing for app.receiver."; stageText.text = "CONFIGURATION" }
-            registeredAt > 0L -> { statusChip.text = "Receiver connected"; statusText.text = "${identity.name() ?: "This device"} was last registered ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(registeredAt))}."; stageText.text = "READY FOR NOTICES" }
-            else -> { statusChip.text = "Ready for setup"; statusText.text = "Sign in, choose a name, and connect this Receiver."; stageText.text = "ACCOUNT SETUP" }
-        }
-        renderNoticeHistory()
-    }
-
-    private fun renderNoticeHistory() {
-        if (!::historyList.isInitialized) return
-        val history = identity.noticeHistory()
-        historyList.removeAllViews()
-        if (history.isEmpty()) {
-            lastNoticeText.text = "Your incoming notices will appear here."
-            clearHistoryButton.isEnabled = false
-            return
-        }
-        val newest = history.first()
-        lastNoticeText.text = "LATEST NOTICE\n${newest.title}\n\n${newest.body}"
-        clearHistoryButton.isEnabled = true
-        history.forEach { notice -> historyList.addView(historyItem(notice), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }) }
-    }
-
-    private fun historyItem(notice: NoticeRecord): MaterialCardView = MaterialCardView(this).apply {
-        radius = dp(14).toFloat()
-        cardElevation = 0f
-        setCardBackgroundColor(Color.parseColor("#F1F8F5"))
-        strokeColor = Color.parseColor("#D5E8E0")
-        strokeWidth = dp(1)
+    private fun featureCard(eyebrow: String, title: String, detail: String): MaterialCardView = card().apply {
         addView(LinearLayout(this@ReceiverActivity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-            addView(label(notice.title, Color.parseColor("#102E32"), 15f, Typeface.BOLD))
-            addView(label(notice.body, Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(5), 0, 0) })
-            if (notice.receivedAt > 0L) addView(label(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(notice.receivedAt)), Color.parseColor("#0E5D5A"), 11f, Typeface.BOLD).apply { setPadding(0, dp(7), 0, 0) })
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            addView(label(eyebrow.uppercase(), Color.parseColor("#0E5D5A"), 11f, Typeface.BOLD))
+            addView(label(title, Color.parseColor("#102E32"), 18f, Typeface.BOLD).apply { setPadding(0, dp(6), 0, 0) })
+            addView(label(detail, Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, 0) })
         })
     }
 
-    private fun setConnecting(stage: String, text: String) {
-        connectButton.isEnabled = false
-        connectButton.text = "Connecting…"
-        statusChip.text = "Connecting"
-        statusText.text = text
-        stageText.text = stage.uppercase()
-    }
+    private fun noticeCard(notice: NoticeRecord): MaterialCardView = featureCard(
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(notice.receivedAt)), notice.title, notice.body,
+    )
 
-    private fun clearDiagnostic() { diagnosticText.visibility = View.GONE; copyDiagnosticButton.visibility = View.GONE; diagnosticText.text = "" }
-
-    private fun showDiagnostic(error: Throwable) {
-        val chain = generateSequence(error) { it.cause }.mapNotNull { it.message?.trim()?.takeIf(String::isNotBlank) }.take(3).joinToString(" → ")
-        diagnosticText.text = if (chain.isNotBlank()) "Diagnostic: $chain" else "Diagnostic: ${error.javaClass.simpleName}. Confirm the backend URL and Firebase setup, then retry."
-        diagnosticText.visibility = View.VISIBLE
-        copyDiagnosticButton.visibility = View.VISIBLE
-    }
-
-    private fun requestNotificationPermission() {
-        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+    private fun onboardingCard(title: String, detail: String): MaterialCardView = MaterialCardView(this).apply {
+        radius = dp(18).toFloat()
+        setCardBackgroundColor(Color.parseColor("#173E43"))
+        strokeColor = Color.parseColor("#316267")
+        strokeWidth = dp(1)
+        addView(LinearLayout(this@ReceiverActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            addView(label(title, Color.parseColor("#9CE1D2"), 13f, Typeface.BOLD))
+            addView(label(detail, Color.parseColor("#E5F4F0"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(6), 0, 0) })
+        })
     }
 
     private fun card() = MaterialCardView(this).apply {
         radius = dp(20).toFloat()
         cardElevation = dp(1).toFloat()
         setCardBackgroundColor(Color.WHITE)
-        strokeColor = Color.parseColor("#DDE8E4")
+        strokeColor = Color.parseColor("#DCE8E4")
         strokeWidth = dp(1)
     }
 
-    private fun label(text: String, color: Int, size: Float, style: Int) = TextView(this).apply {
-        this.text = text
-        setTextColor(color)
-        textSize = size
-        typeface = Typeface.create("sans", style)
-        gravity = Gravity.START
+    private fun primaryButton(text: String, action: () -> Unit) = MaterialButton(this).apply { this.text = text; setOnClickListener { action() } }
+    private fun secondaryButton(text: String, action: () -> Unit) = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply { this.text = text; isAllCaps = false; setOnClickListener { action() } }
+    private fun emailField(hint: String) = TextInputEditText(this).apply { setSingleLine(); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS; contentDescription = hint }
+    private fun passwordField() = TextInputEditText(this).apply { setSingleLine(); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
+    private fun outlinedInput(hint: String, input: TextInputEditText, helper: String? = null) = TextInputLayout(this).apply { this.hint = hint; boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE; helperText = helper; if (hint == "Password") endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE; addView(input) }
+    private fun margins(top: Int = 0) = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(top) }
+    private fun label(text: String, color: Int, size: Float, style: Int) = TextView(this).apply { this.text = text; setTextColor(color); textSize = size; typeface = Typeface.create("sans", style) }
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    private fun applyInsets(page: View, header: View, bottom: View?) {
+        ViewCompat.setOnApplyWindowInsetsListener(page) { _, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            header.setPadding(header.paddingLeft + safe.left, header.paddingTop + safe.top, header.paddingRight + safe.right, header.paddingBottom)
+            bottom?.setPadding(bottom.paddingLeft + safe.left, bottom.paddingTop, bottom.paddingRight + safe.right, bottom.paddingBottom + safe.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(page)
     }
 
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    private fun requestNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
+    }
 }

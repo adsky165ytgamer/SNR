@@ -18,6 +18,16 @@ class ReceiverIdentity(context: Context) {
         .putString("receiver_name", value?.trim()?.takeIf { it.isNotEmpty() })
         .apply()
 
+    fun hasCompletedOnboarding(): Boolean = preferences.getBoolean("onboarding_complete", false)
+
+    fun completeOnboarding() = preferences.edit()
+        .putBoolean("onboarding_complete", true)
+        .apply()
+
+    fun resetOnboarding() = preferences.edit()
+        .putBoolean("onboarding_complete", false)
+        .apply()
+
     fun lastRegisteredAt(): Long = preferences.getLong("last_registered_at", 0L)
 
     fun recordRegistered() = preferences.edit()
