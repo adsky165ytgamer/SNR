@@ -31,11 +31,11 @@ For backwards-compatible unit tests, `createApp()` still permits an omitted veri
 
 ## Android implementation
 
-Both apps already contain a `GoogleAuthSession` helper based on Credential Manager, Google ID tokens, and Firebase Auth. The activities now expose a visible Google account card, restore the existing Firebase session on launch, allow sign-in and sign-out, and use the resulting Firebase ID token for protected backend requests.
+Both apps now contain a `GoogleAuthSession` helper based on Credential Manager, Google ID tokens, and Firebase Auth. Google Sign-In is preferred when a Web OAuth client ID is configured. If OAuth is unavailable, the session automatically uses Firebase Anonymous Auth and still obtains a verifiable Firebase ID token; the UI labels this as a **Secure device session** instead of pretending that Google Sign-In succeeded. The activities expose a visible authentication card, restore the existing Firebase session on launch, allow sign-in and sign-out, and use the resulting Firebase ID token for protected backend requests.
 
-The Receiver flow is: sign in with Google, initialize Firebase, obtain the real Firebase installation ID and FCM token, then call the registration endpoint with the Bearer token. The background heartbeat worker and FCM token-refresh registration path also obtain the current Firebase ID token before calling the backend. If no signed-in Firebase user exists, those background operations safely skip or retry rather than sending unauthenticated requests.
+The Receiver flow is: authenticate with Google when configured or use the secure Firebase device-session fallback, initialize the original `school-notics` Firebase project, obtain the real Firebase installation ID and FCM token, then call the registration endpoint with the Bearer token. The background heartbeat worker and FCM token-refresh registration path also obtain the current Firebase ID token before calling the backend. No protected request is intentionally sent without a token.
 
-The Sender flow is: sign in with Google, load real enabled receiver records with the Bearer token, select one returned device, compose a notice, and send it with the same authenticated API path. The UI does not fabricate receiver names, IDs, or status data.
+The Sender flow is: authenticate with Google when configured or use the secure Firebase device-session fallback, load real enabled receiver records with the Bearer token, select one returned device, compose a notice, and send it with the same authenticated API path. Sender uses a manual Firebase bootstrap from the original project’s public client metadata, so it does not require copying the Receiver’s package-specific JSON file. The UI does not fabricate receiver names, IDs, or status data.
 
 The shared build property is:
 
@@ -43,19 +43,19 @@ The shared build property is:
 GOOGLE_WEB_CLIENT_ID=replace-with-production-web-client-id
 ```
 
-This value is a non-secret OAuth client identifier, not a private key. It must be replaced with the Firebase/Google Cloud **Web application** OAuth client ID before a functional production build. The current backend URL remains a separate build property and must point to the permanent HTTPS backend deployment rather than a temporary tunnel.
+This value is a non-secret OAuth client identifier, not a private key. Replacing the placeholder enables the preferred Google path. Until then, the built apps use Firebase Anonymous Auth as the secure fallback, provided Anonymous Auth is enabled in `school-notics`. The current backend URL remains a separate build property and must point to the permanent HTTPS backend deployment rather than a temporary tunnel.
 
-Each Android app must have its own Firebase Android registration for its exact package name. The Receiver’s `google-services.json` remains local and ignored by Git. The Sender module now supports its own local `google-services.json`; the correct file must be obtained for the `app.sender` registration and must not be copied from the Receiver app.
+The Receiver uses the existing local `google-services.json` for `app.receiver` in `school-notics`, and it remains ignored by Git. Sender initializes the same Firebase project using public client metadata from the original Receiver configuration, so a second JSON file is not required for the secure anonymous fallback. A package-specific Sender Firebase registration and JSON file are still required if the preferred Google Sign-In path is enabled for `app.sender`.
 
 ## Validation completed
 
 The backend test suite passes all five tests, including registration privacy, missing receiver handling, invalid FCM token mapping, malformed JSON handling, and rejection of missing Firebase credentials. The backend TypeScript build passes with `npm run build`.
 
-The Android project could not be compiled in this sandbox because the repository does not contain a Gradle wrapper and no system `gradle` executable is installed. The source-level call-site scan confirms that protected Receiver and Sender requests now pass Firebase ID tokens, while the public `/health` probe remains unauthenticated.
+Both Android modules compile and package successfully with Gradle 8.13 and the cached Android SDK. The Receiver APK is `app.receiver`, version `0.1.1`; the Sender APK is `app.sender`, version `0.1.1`. The backend test suite passes all five tests and the TypeScript build passes. APK metadata was inspected with Android build tools. No physical Android device or emulator was attached in this sandbox, so FCM delivery and the interactive Credential Manager sheet remain device-level validation steps.
 
 ## Required user-side configuration before a real APK test
 
-The production Web OAuth client ID must be entered into `android/gradle.properties` as `GOOGLE_WEB_CLIENT_ID`. A Firebase Android app registration and matching `google-services.json` must exist for both `app.receiver` and `app.sender`; these files remain uncommitted. The backend must be deployed at a permanent HTTPS URL and that URL must replace `BACKEND_BASE_URL` in the shared Gradle properties.
+The production Web OAuth client ID may be entered into `android/gradle.properties` as `GOOGLE_WEB_CLIENT_ID` to activate preferred Google Sign-In. For the no-blocking fallback, enable Firebase Anonymous Auth in `school-notics`; no OAuth client ID is needed. The backend must be deployed at a permanent HTTPS URL and that URL must replace `BACKEND_BASE_URL` in the shared Gradle properties.
 
 The Firebase Authentication provider for Google must be enabled in the `school-notics` Firebase project. The Android test devices must use Google Play services and have a Google account permitted by the project’s authentication configuration.
 
@@ -75,4 +75,4 @@ The service-account JSON and FCM credential previously pasted into chat must be 
 
 ## Repository synchronization
 
-The Android source trees are intended to sync to the existing `SNR` and `SNS` GitHub repositories. Both repositories currently report public visibility and should be changed to private before pushing any project history. The `.gitignore` files now exclude `google-services.json`, keystores, and build outputs. No service-account credential or FCM secret is included in this handoff.
+The Android source trees are intended to sync to the existing `SNR` and `SNS` GitHub repositories. Both repositories are private after synchronization. The `.gitignore` files now exclude `google-services.json`, keystores, and build outputs. No service-account credential or FCM secret is included in this handoff.

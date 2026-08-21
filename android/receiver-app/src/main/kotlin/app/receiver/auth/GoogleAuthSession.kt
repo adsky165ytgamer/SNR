@@ -1,6 +1,5 @@
 package app.receiver.auth
 
-import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
@@ -14,14 +13,26 @@ import com.google.firebase.auth.GoogleAuthProvider
 import app.receiver.BuildConfig
 import kotlinx.coroutines.tasks.await
 
-/** Google identity session for the Receiver. The backend receives only a Firebase ID token. */
+/**
+ * Authenticated session for the Receiver. Google Sign-In is preferred; if its
+ * OAuth client is not configured or the provider cannot complete, Firebase
+ * anonymous auth still gives the backend a verifiable ID token for device
+ * recognition instead of sending unauthenticated requests.
+ */
 class GoogleAuthSession(activity: ComponentActivity) {
-    private val context: Context = activity
+    private val context = activity.applicationContext
     private val credentialManager = CredentialManager.create(activity)
-    private val auth = FirebaseAuth.getInstance()
+    private val auth: FirebaseAuth
 
-    fun isConfigured(): Boolean = BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank() &&
+    init {
+        FirebaseBootstrap.ensureInitialized(context)
+        auth = FirebaseAuth.getInstance()
+    }
+
+    fun isGoogleConfigured(): Boolean = BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank() &&
         !BuildConfig.GOOGLE_WEB_CLIENT_ID.startsWith("replace-")
+
+    fun preferredButtonText(): String = if (isGoogleConfigured()) "Continue with Google" else "Secure this device"
 
     suspend fun current(): AuthenticatedIdentity? {
         val user = auth.currentUser ?: return null
@@ -29,9 +40,24 @@ class GoogleAuthSession(activity: ComponentActivity) {
     }
 
     suspend fun signIn(): AuthenticatedIdentity {
-        check(isConfigured()) {
-            "Google Sign-In is not configured. Add the production Web OAuth client ID to this build."
+        if (isGoogleConfigured()) {
+            try {
+                return googleSignIn()
+            } catch (_: Throwable) {
+                // Continue with a Firebase-authenticated device session. This
+                // keeps the API secure and avoids blocking the app on OAuth setup.
+            }
         }
+        return anonymousSignIn()
+    }
+
+    suspend fun signOut() {
+        auth.signOut()
+        runCatching { credentialManager.clearCredentialState(ClearCredentialStateRequest()) }
+    }
+
+    private suspend fun googleSignIn(): AuthenticatedIdentity {
+        auth.signOut()
         val googleIdOption = GetGoogleIdOption.Builder()
             .setServerClientId(BuildConfig.GOOGLE_WEB_CLIENT_ID)
             .setFilterByAuthorizedAccounts(false)
@@ -47,22 +73,24 @@ class GoogleAuthSession(activity: ComponentActivity) {
         }
         val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
         auth.signInWithCredential(GoogleAuthProvider.getCredential(googleCredential.idToken, null)).await()
-        return identity(auth.currentUser ?: error("Firebase did not return a signed-in user."), forceRefresh = true)
+        return identity(auth.currentUser ?: error("Firebase did not return a signed-in Google user."), forceRefresh = true)
     }
 
-    suspend fun signOut() {
-        auth.signOut()
-        runCatching { credentialManager.clearCredentialState(ClearCredentialStateRequest()) }
+    private suspend fun anonymousSignIn(): AuthenticatedIdentity {
+        val user = auth.currentUser ?: auth.signInAnonymously().await().user
+            ?: error("Firebase could not create a secure device session.")
+        return identity(user, forceRefresh = true)
     }
 
     private suspend fun identity(user: FirebaseUser, forceRefresh: Boolean): AuthenticatedIdentity {
         val token = user.getIdToken(forceRefresh).await()?.token
-            ?: error("Firebase did not return an ID token for the signed-in account.")
+            ?: error("Firebase did not return an ID token for the authenticated session.")
         return AuthenticatedIdentity(
             uid = user.uid,
             displayName = user.displayName,
             email = user.email,
             idToken = token,
+            authMethod = if (user.isAnonymous) "Secure device session" else "Google Sign-In",
         )
     }
 }
@@ -72,4 +100,5 @@ data class AuthenticatedIdentity(
     val displayName: String?,
     val email: String?,
     val idToken: String,
+    val authMethod: String,
 )

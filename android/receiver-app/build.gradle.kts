@@ -15,6 +15,9 @@ android {
         versionName = "0.1.1"
         buildConfigField("String", "BACKEND_BASE_URL", "\"${providers.gradleProperty("BACKEND_BASE_URL").getOrElse("https://replace-with-your-backend.example").trimEnd('/')}\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${providers.gradleProperty("GOOGLE_WEB_CLIENT_ID").getOrElse("replace-with-production-web-client-id")}\"")
+        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${providers.gradleProperty("FIREBASE_PROJECT_ID").getOrElse("school-notics")}\"")
+        buildConfigField("String", "FIREBASE_APPLICATION_ID", "\"${providers.gradleProperty("FIREBASE_APPLICATION_ID").getOrElse("1:763216367314:android:9af9287a9df5aeddc4670b")}\"")
+        buildConfigField("String", "FIREBASE_API_KEY", "\"${providers.gradleProperty("FIREBASE_API_KEY").getOrElse("replace-with-firebase-api-key")}\"")
     }
     buildFeatures { buildConfig = true }
     compileOptions {

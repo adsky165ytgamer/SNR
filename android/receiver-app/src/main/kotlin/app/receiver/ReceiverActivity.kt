@@ -16,6 +16,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -29,8 +32,10 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.installations.FirebaseInstallations
 import com.google.firebase.messaging.FirebaseMessaging
 import app.receiver.auth.AuthenticatedIdentity
+import app.receiver.auth.FirebaseBootstrap
 import app.receiver.auth.GoogleAuthSession
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -59,6 +64,10 @@ class ReceiverActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        window.isNavigationBarContrastEnforced = false
         setContentView(buildScreen())
         requestNotificationPermission()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
@@ -165,6 +174,13 @@ class ReceiverActivity : ComponentActivity() {
         page.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
         ))
+        ViewCompat.setOnApplyWindowInsetsListener(page) { _, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            header.setPadding(dp(24) + safe.left, dp(28) + safe.top, dp(24) + safe.right, dp(22))
+            body.setPadding(dp(20) + safe.left, dp(20), dp(20) + safe.right, dp(32) + safe.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(page)
         return page
     }
 
@@ -175,7 +191,7 @@ class ReceiverActivity : ComponentActivity() {
         authSummary = label("Not signed in. Sign in to bind this Receiver to your Google account.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(10)) }
         addView(authSummary)
         authButton = MaterialButton(this@ReceiverActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "Sign in with Google"
+            text = authSession.preferredButtonText()
             setOnClickListener { authenticate() }
         }
         addView(authButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -223,8 +239,8 @@ class ReceiverActivity : ComponentActivity() {
     private fun registerReceiver() = lifecycleScope.launch {
         identity.setName(nameInput.text?.toString())
         if (authIdentity == null) {
-            authenticate()
-            return@launch
+            authIdentity = authSession.signIn()
+            renderAuth(authIdentity!!)
         }
         clearDiagnostic()
         try {
@@ -233,7 +249,8 @@ class ReceiverActivity : ComponentActivity() {
             withContext(Dispatchers.IO) { BackendClient.get("/health") }
 
             setConnecting("Preparing Firebase", "Creating this device’s Firebase installation…")
-            check(FirebaseApp.initializeApp(this@ReceiverActivity) != null) { "Firebase configuration is missing for app.receiver." }
+            FirebaseBootstrap.ensureInitialized(this@ReceiverActivity)
+            check(FirebaseApp.getApps(this@ReceiverActivity).isNotEmpty()) { "Firebase configuration is missing for app.receiver." }
             check(FirebaseInstallations.getInstance().id.await().isNotBlank()) { "Firebase could not create a device installation." }
 
             setConnecting("Requesting push token", "Requesting the real FCM token for this device…")
@@ -267,30 +284,30 @@ class ReceiverActivity : ComponentActivity() {
         }
     }
 
-    private fun authenticate() = lifecycleScope.launch {
+    private fun authenticate(): Job = lifecycleScope.launch {
         authButton.isEnabled = false
         authButton.text = "Signing in…"
         runCatching { authSession.signIn() }.onSuccess {
             authIdentity = it
             renderAuth(it)
             statusChip.text = "Google account connected"
-            statusText.text = "This Receiver is ready to register under ${it.email ?: "the signed-in account"}."
+            statusText.text = "${it.authMethod} is active. This Receiver can now register securely."
         }.onFailure { error ->
-            authSummary.text = error.message ?: "Google Sign-In did not complete."
+            authSummary.text = error.message ?: "Secure authentication did not complete."
             statusChip.text = "Sign-in needs attention"
-            statusText.text = "Sign in with Google before registering this Receiver."
+            statusText.text = "Retry authentication before registering this Receiver."
         }.also {
             authButton.isEnabled = true
-            authButton.text = if (authIdentity == null) "Sign in with Google" else "Sign out"
+            authButton.text = if (authIdentity == null) authSession.preferredButtonText() else "Sign out"
             authButton.setOnClickListener { if (authIdentity == null) authenticate() else signOut() }
         }
     }
 
-    private fun signOut() = lifecycleScope.launch {
+    private fun signOut(): Job = lifecycleScope.launch {
         authSession.signOut()
         authIdentity = null
-        authSummary.text = "Not signed in. Sign in to bind this Receiver to your Google account."
-        authButton.text = "Sign in with Google"
+        authSummary.text = "Not authenticated. Secure this Receiver before connecting it."
+        authButton.text = authSession.preferredButtonText()
         authButton.setOnClickListener { authenticate() }
     }
 
@@ -302,14 +319,14 @@ class ReceiverActivity : ComponentActivity() {
     }
 
     private fun renderAuth(identity: AuthenticatedIdentity) {
-        authSummary.text = "Signed in as ${identity.email ?: identity.displayName ?: identity.uid}. This account identifies the Receiver installation."
+        authSummary.text = "${identity.authMethod}: ${identity.email ?: identity.displayName ?: "device identity"}. This session identifies the Receiver installation."
         authButton.text = "Sign out"
         authButton.setOnClickListener { signOut() }
     }
 
     private fun refreshPresentation() {
         val registeredAt = identity.lastRegisteredAt()
-        val firebaseReady = FirebaseApp.initializeApp(this) != null
+        val firebaseReady = runCatching { FirebaseBootstrap.ensureInitialized(this); true }.getOrDefault(false)
         when {
             !BackendClient.isConfigured() -> {
                 statusChip.text = "Backend URL needed"
