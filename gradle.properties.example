@@ -1,0 +1,5 @@
+BACKEND_BASE_URL=https://replace-with-production-backend.example
+GOOGLE_WEB_CLIENT_ID=replace-with-production-web-client-id
+FIREBASE_PROJECT_ID=school-notics
+FIREBASE_APPLICATION_ID=replace-with-original-firebase-application-id
+FIREBASE_API_KEY=replace-with-original-firebase-api-key
