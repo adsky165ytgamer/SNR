@@ -1,0 +1,44 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createApp } from "../src/app.js";
+import { FcmGateway, ReceiverRecord, ReceiverRegistration, ReceiverStore } from "../src/domain.js";
+
+class MemoryStore implements ReceiverStore {
+  private readonly records = new Map<string, ReceiverRecord>();
+  async upsertReceiver(input: ReceiverRegistration) { const now = new Date().toISOString(); const previous = this.records.get(input.receiverId); const record: ReceiverRecord = { receiverId: input.receiverId, name: input.name, fcmToken: input.fcmToken, platform: "android", appVersion: input.appVersion, enabled: true, createdAt: previous?.createdAt ?? now, updatedAt: now, lastSeenAt: now }; this.records.set(record.receiverId, record); return record; }
+  async heartbeat(receiverId: string, appVersion: string | null) { const record = this.records.get(receiverId); if (!record) return null; record.appVersion = appVersion; record.updatedAt = record.lastSeenAt = new Date().toISOString(); return record; }
+  async listReceivers() { return [...this.records.values()]; }
+  async getReceiver(receiverId: string) { return this.records.get(receiverId) ?? null; }
+}
+class MemoryFcm implements FcmGateway { sent: { receiverId: string; title: string; body: string }[] = []; async sendTestNotice(input: { receiverId: string; fcmToken: string; noticeId: string; title: string; body: string; type: "TEST" }) { this.sent.push(input); return "projects/test/messages/abc"; } }
+
+test("V0.1 registers without returning the FCM token and sends a real gateway request", async () => {
+  const store = new MemoryStore(); const fcm = new MemoryFcm(); const app = await createApp({ store, fcm }); const receiverId = "db870847-a78c-4926-8be7-498864df0711";
+  const registered = await app.inject({ method: "POST", url: "/api/v1/receivers/register", payload: { receiverId, name: "Live panel", fcmToken: "token-from-firebase", appVersion: "1.0.0" } });
+  assert.equal(registered.statusCode, 200);
+  const receivers = await app.inject({ method: "GET", url: "/api/v1/receivers" });
+  assert.equal(receivers.statusCode, 200); assert.equal(receivers.body.includes("token-from-firebase"), false);
+  const notice = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test Notice", body: "Backend to Receiver", type: "TEST" } });
+  assert.equal(notice.statusCode, 200); assert.equal(fcm.sent.length, 1); await app.close();
+});
+
+test("V0.1 rejects missing receivers", async () => {
+  const app = await createApp({ store: new MemoryStore(), fcm: new MemoryFcm() });
+  const response = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId: "db870847-a78c-4926-8be7-498864df0711", title: "Test", body: "Test", type: "TEST" } });
+  assert.equal(response.statusCode, 404); assert.equal(JSON.parse(response.body).error, "RECEIVER_NOT_FOUND"); await app.close();
+});
+
+test("V0.1 maps a rejected Firebase registration token to a safe 409 response", async () => {
+  const store = new MemoryStore(); const receiverId = "db870847-a78c-4926-8be7-498864df0711";
+  await store.upsertReceiver({ receiverId, name: null, fcmToken: "expired-token", appVersion: null });
+  const fcm: FcmGateway = { async sendTestNotice() { throw { code: "messaging/registration-token-not-registered" }; } };
+  const app = await createApp({ store, fcm });
+  const response = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test", body: "Test", type: "TEST" } });
+  assert.equal(response.statusCode, 409); assert.equal(JSON.parse(response.body).error, "INVALID_FCM_TOKEN"); await app.close();
+});
+
+test("V0.1 rejects malformed JSON with a safe 400 response", async () => {
+  const app = await createApp({ store: new MemoryStore(), fcm: new MemoryFcm() });
+  const response = await app.inject({ method: "POST", url: "/api/v1/receivers/register", headers: { "content-type": "application/json" }, payload: "{not valid json" });
+  assert.equal(response.statusCode, 400); assert.equal(JSON.parse(response.body).error, "INVALID_REQUEST_BODY"); await app.close();
+});

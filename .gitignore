@@ -1,0 +1,20 @@
+# Firebase and server credentials
+**/google-services.json
+**/*service-account*.json
+**/*firebase-adminsdk*.json
+backend/.env
+backend/.firebase/
+*.pem
+*.key
+
+# Local runtime configuration
+android/gradle.properties
+
+# Android and Node build outputs
+**/.gradle/
+**/build/
+backend/node_modules/
+backend/dist/
+
+# Operating-system files
+.DS_Store
