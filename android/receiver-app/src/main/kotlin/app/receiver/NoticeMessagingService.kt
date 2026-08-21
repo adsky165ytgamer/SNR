@@ -4,11 +4,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 
 class NoticeMessagingService : FirebaseMessagingService() {
@@ -25,8 +27,9 @@ class NoticeMessagingService : FirebaseMessagingService() {
         val notification = NotificationCompat.Builder(this, "school_notice_test").setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(title).setContentText(body).setStyle(NotificationCompat.BigTextStyle().bigText(body)).setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true).build()
         manager.notify(message.data["noticeId"]?.hashCode() ?: System.currentTimeMillis().toInt(), notification)
     }
-    private fun register(token: String) {
+    private suspend fun register(token: String) {
+        val authToken = FirebaseAuth.getInstance().currentUser?.getIdToken(false)?.await()?.token ?: return
         val identity = ReceiverIdentity(applicationContext)
-        BackendClient.post("/api/v1/receivers/register", JSONObject().put("receiverId", identity.receiverId()).put("name", identity.name()).put("fcmToken", token).put("appVersion", packageManager.getPackageInfo(packageName, 0).versionName))
+        BackendClient.post("/api/v1/receivers/register", JSONObject().put("receiverId", identity.receiverId()).put("name", identity.name()).put("fcmToken", token).put("appVersion", packageManager.getPackageInfo(packageName, 0).versionName), authToken)
     }
 }

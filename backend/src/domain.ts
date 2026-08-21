@@ -1,5 +1,6 @@
 export type ReceiverRecord = {
   receiverId: string;
+  ownerUid: string | null;
   name: string | null;
   fcmToken: string;
   platform: "android";
@@ -10,10 +11,11 @@ export type ReceiverRecord = {
   lastSeenAt: string | null;
 };
 
-export type ReceiverPublic = Omit<ReceiverRecord, "fcmToken" | "createdAt">;
+export type ReceiverPublic = Omit<ReceiverRecord, "fcmToken" | "ownerUid" | "createdAt">;
 
 export type ReceiverRegistration = {
   receiverId: string;
+  ownerUid: string;
   name: string | null;
   fcmToken: string;
   appVersion: string | null;
@@ -24,6 +26,16 @@ export type ReceiverStore = {
   heartbeat(receiverId: string, appVersion: string | null): Promise<ReceiverRecord | null>;
   listReceivers(): Promise<ReceiverRecord[]>;
   getReceiver(receiverId: string): Promise<ReceiverRecord | null>;
+};
+
+export type AuthenticatedUser = {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+};
+
+export type AuthVerifier = {
+  verifyAuthorizationHeader(value: string | undefined): Promise<AuthenticatedUser>;
 };
 
 export type FcmGateway = {

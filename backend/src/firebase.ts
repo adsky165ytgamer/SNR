@@ -5,7 +5,7 @@ import { FcmGateway, ReceiverRecord, ReceiverRegistration, ReceiverStore } from 
 
 const asIsoString = (value: unknown): string | null => value instanceof Timestamp ? value.toDate().toISOString() : null;
 
-function firebaseAdminApp(): App {
+export function firebaseAdminApp(): App {
   if (getApps().length > 0) return getApp();
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   if (serviceAccountJson) return initializeApp({ credential: cert(JSON.parse(serviceAccountJson)) });
@@ -13,11 +13,24 @@ function firebaseAdminApp(): App {
   return initializeApp({ credential: applicationDefault(), ...(projectId ? { projectId } : {}) });
 }
 
-export function createFirebaseDependencies(): { store: ReceiverStore; fcm: FcmGateway } {
+export function createFirebaseDependencies(): { store: ReceiverStore; fcm: FcmGateway; logNotice: (input: { noticeId: string; senderUid: string; receiverId: string; title: string; body: string; messageId: string; type: "TEST" }) => Promise<void> } {
   const app = firebaseAdminApp();
+  const firestore = getFirestore(app);
   return {
-    store: new FirestoreReceiverStore(getFirestore(app)),
-    fcm: new FirebaseMessagingGateway(getMessaging(app))
+    store: new FirestoreReceiverStore(firestore),
+    fcm: new FirebaseMessagingGateway(getMessaging(app)),
+    logNotice: async (input) => {
+      await firestore.collection("notices").doc(input.noticeId).set({
+        noticeId: input.noticeId,
+        senderUid: input.senderUid,
+        receiverId: input.receiverId,
+        title: input.title,
+        body: input.body,
+        messageId: input.messageId,
+        type: input.type,
+        dispatchedAt: FieldValue.serverTimestamp()
+      });
+    }
   };
 }
 
@@ -27,6 +40,7 @@ class FirestoreReceiverStore implements ReceiverStore {
   private toRecord(receiverId: string, data: Record<string, unknown>): ReceiverRecord {
     return {
       receiverId,
+      ownerUid: typeof data.ownerUid === "string" ? data.ownerUid : null,
       name: typeof data.name === "string" ? data.name : null,
       fcmToken: typeof data.fcmToken === "string" ? data.fcmToken : "",
       platform: "android",
@@ -43,6 +57,7 @@ class FirestoreReceiverStore implements ReceiverStore {
       const existing = await transaction.get(reference);
       transaction.set(reference, {
         receiverId: input.receiverId,
+        ownerUid: input.ownerUid,
         name: input.name,
         fcmToken: input.fcmToken,
         platform: "android",
