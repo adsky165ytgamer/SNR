@@ -75,7 +75,7 @@ object BackendClient {
         "RECEIVER_DISABLED" -> "That Receiver is disabled. Refresh the device list."
         "INVALID_FCM_TOKEN" -> "The Receiver push token is no longer valid. Reconnect the Receiver app."
         "FCM_SEND_FAILED" -> "Firebase could not deliver the notice. Check the Receiver connection and try again."
-        "AUTH_REQUIRED" -> "Sign in with Google before connecting this device."
+        "AUTH_REQUIRED" -> "Sign in to the Receiver account before connecting this device."
         "INVALID_REQUEST_BODY", "VALIDATION_ERROR" -> "The backend rejected the notice details. Check the fields and try again."
         else -> "Backend request failed with $code (HTTP $status)."
     }

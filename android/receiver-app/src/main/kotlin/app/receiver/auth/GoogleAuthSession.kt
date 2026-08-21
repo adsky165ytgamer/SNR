@@ -13,12 +13,7 @@ import com.google.firebase.auth.GoogleAuthProvider
 import app.receiver.BuildConfig
 import kotlinx.coroutines.tasks.await
 
-/**
- * Authenticated session for the Receiver. Google Sign-In is preferred; if its
- * OAuth client is not configured or the provider cannot complete, Firebase
- * anonymous auth still gives the backend a verifiable ID token for device
- * recognition instead of sending unauthenticated requests.
- */
+/** Firebase session for Receiver. Email/Password is primary; Google remains optional. */
 class GoogleAuthSession(activity: ComponentActivity) {
     private val context = activity.applicationContext
     private val credentialManager = CredentialManager.create(activity)
@@ -29,26 +24,30 @@ class GoogleAuthSession(activity: ComponentActivity) {
         auth = FirebaseAuth.getInstance()
     }
 
-    fun isGoogleConfigured(): Boolean = BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank() &&
-        !BuildConfig.GOOGLE_WEB_CLIENT_ID.startsWith("replace-")
-
-    fun preferredButtonText(): String = if (isGoogleConfigured()) "Continue with Google" else "Secure this device"
+    fun preferredButtonText(): String = "Sign in with email"
 
     suspend fun current(): AuthenticatedIdentity? {
         val user = auth.currentUser ?: return null
         return identity(user, forceRefresh = false)
     }
 
-    suspend fun signIn(): AuthenticatedIdentity {
-        if (isGoogleConfigured()) {
-            try {
-                return googleSignIn()
-            } catch (_: Throwable) {
-                // Continue with a Firebase-authenticated device session. This
-                // keeps the API secure and avoids blocking the app on OAuth setup.
-            }
-        }
-        return anonymousSignIn()
+    suspend fun signInWithEmail(email: String, password: String): AuthenticatedIdentity {
+        require(email.isNotBlank()) { "Enter the account email address." }
+        require(password.length >= 6) { "Password must contain at least 6 characters." }
+        auth.signInWithEmailAndPassword(email.trim(), password).await()
+        return identity(auth.currentUser ?: error("Firebase did not return the signed-in account."), forceRefresh = true)
+    }
+
+    suspend fun createEmailAccount(email: String, password: String): AuthenticatedIdentity {
+        require(email.isNotBlank()) { "Enter an email address for this Receiver account." }
+        require(password.length >= 6) { "Password must contain at least 6 characters." }
+        auth.createUserWithEmailAndPassword(email.trim(), password).await()
+        return identity(auth.currentUser ?: error("Firebase did not return the new Receiver account."), forceRefresh = true)
+    }
+
+    suspend fun sendPasswordReset(email: String) {
+        require(email.isNotBlank()) { "Enter your account email address first." }
+        auth.sendPasswordResetEmail(email.trim()).await()
     }
 
     suspend fun signOut() {
@@ -56,42 +55,33 @@ class GoogleAuthSession(activity: ComponentActivity) {
         runCatching { credentialManager.clearCredentialState(ClearCredentialStateRequest()) }
     }
 
-    private suspend fun googleSignIn(): AuthenticatedIdentity {
+    /** Optional Google path retained for projects that later configure OAuth. */
+    suspend fun signInWithGoogle(webClientId: String): AuthenticatedIdentity {
+        require(webClientId.isNotBlank() && !webClientId.startsWith("replace-")) { "Google OAuth is not configured." }
         auth.signOut()
-        val googleIdOption = GetGoogleIdOption.Builder()
-            .setServerClientId(BuildConfig.GOOGLE_WEB_CLIENT_ID)
+        val option = GetGoogleIdOption.Builder()
+            .setServerClientId(webClientId)
             .setFilterByAuthorizedAccounts(false)
             .setAutoSelectEnabled(false)
             .build()
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
-        val result = credentialManager.getCredential(context, request)
+        val result = credentialManager.getCredential(
+            context,
+            GetCredentialRequest.Builder().addCredentialOption(option).build(),
+        )
         val credential = result.credential
         check(credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
             "Google returned an unsupported credential type."
         }
-        val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
-        auth.signInWithCredential(GoogleAuthProvider.getCredential(googleCredential.idToken, null)).await()
-        return identity(auth.currentUser ?: error("Firebase did not return a signed-in Google user."), forceRefresh = true)
-    }
-
-    private suspend fun anonymousSignIn(): AuthenticatedIdentity {
-        val user = auth.currentUser ?: auth.signInAnonymously().await().user
-            ?: error("Firebase could not create a secure device session.")
-        return identity(user, forceRefresh = true)
+        val google = GoogleIdTokenCredential.createFrom(credential.data)
+        auth.signInWithCredential(GoogleAuthProvider.getCredential(google.idToken, null)).await()
+        return identity(auth.currentUser ?: error("Firebase did not return a Google account."), forceRefresh = true)
     }
 
     private suspend fun identity(user: FirebaseUser, forceRefresh: Boolean): AuthenticatedIdentity {
         val token = user.getIdToken(forceRefresh).await()?.token
             ?: error("Firebase did not return an ID token for the authenticated session.")
-        return AuthenticatedIdentity(
-            uid = user.uid,
-            displayName = user.displayName,
-            email = user.email,
-            idToken = token,
-            authMethod = if (user.isAnonymous) "Secure device session" else "Google Sign-In",
-        )
+        val method = if (user.providerData.any { it.providerId == "password" }) "Email/Password" else "Google Sign-In"
+        return AuthenticatedIdentity(user.uid, user.displayName, user.email, token, method)
     }
 }
 
