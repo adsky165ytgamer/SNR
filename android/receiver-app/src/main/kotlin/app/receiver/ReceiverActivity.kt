@@ -45,7 +45,7 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.TimeUnit
 
-/** NoticeFlow Receiver v1.1.1 Alpha: Material 3 guided setup, inbox, and live device connection. */
+/** NoticeFlow Receiver v1.1.2 Beta: Material 3 guided setup, inbox, and live device connection. */
 class ReceiverActivity : ComponentActivity() {
     private val identity by lazy { ReceiverIdentity(applicationContext) }
     private val authSession by lazy { GoogleAuthSession(this) }
@@ -114,7 +114,7 @@ class ReceiverActivity : ComponentActivity() {
             }
         }
         page.addView(start, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(24) })
-        page.addView(label("v1.1.1 Alpha  ·  Crafted by ad_vibe_dev", Color.parseColor("#9CE1D2"), 12f, Typeface.BOLD).apply {
+        page.addView(label("v1.1.2 Beta  ·  Crafted by ad_vibe_dev", Color.parseColor("#9CE1D2"), 12f, Typeface.BOLD).apply {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(0, dp(16), 0, 0)
         })
@@ -277,7 +277,7 @@ class ReceiverActivity : ComponentActivity() {
     private fun renderAbout() {
         val body = sectionBody()
         body.addView(sectionTitle("NoticeFlow Receiver", "A focused receiving space for reliable school communication."))
-        body.addView(featureCard("v1.1.1 Alpha", "Built for deliberate delivery", "This Material 3 update refines navigation, interaction feedback, safe-area behavior, and accessible touch targets without changing the live delivery contract."), margins(top = 14))
+        body.addView(featureCard("v1.1.2 Beta", "Built for deliberate delivery", "This Material 3 Beta refines navigation, interaction feedback, safe-area behavior, and accessible touch targets without changing the live delivery contract."), margins(top = 14))
         body.addView(featureCard("Created by", "ad_vibe_dev", "NoticeFlow is designed as a proprietary school communication product."), margins(top = 14))
         body.addView(featureCard("License and access", "Proprietary — not open source", "No permission is granted to copy, redistribute, reverse engineer, or publish this application or its source without written authorization from the creator."), margins(top = 14))
         body.addView(secondaryButton("Replay introduction") { identity.resetOnboarding(); showOnboarding() }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)).apply { topMargin = dp(16) })
