@@ -223,15 +223,16 @@ class ReceiverActivity : ComponentActivity() {
         item { ScreenHeading("Settings", "Account, connection and application controls.") }
         item { AccountCard() }
         item { ConnectionActionCard() }
-        item { SectionCard("About NoticeFlow", "Receiver v1.1.3 Beta", Icons.Default.Info) { Text("A focused school communication receiver with a live local inbox.", color = Muted, fontSize = 14.sp) } }
+        item { SectionCard("About NoticeFlow", "Receiver v1.1.6 Beta", Icons.Default.Info) { Text("A focused school communication receiver with a live local inbox.", color = Muted, fontSize = 14.sp) } }
     }
 
     @Composable private fun AccountCard() = SectionCard("School account", authIdentity?.email ?: "Sign in to connect this Receiver", Icons.Default.AccountCircle) {
         if (authIdentity == null) {
             OutlinedTextField(emailValue, { emailValue = it }, singleLine = true, label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), colors = darkFieldColors())
             Spacer(Modifier.height(10.dp)); OutlinedTextField(passwordValue, { passwordValue = it }, singleLine = true, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), colors = darkFieldColors())
-            Spacer(Modifier.height(12.dp)); Button(onClick = { signIn() }, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = actionColors()) { Text(if (busy) "Signing in…" else "Sign in", fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.height(12.dp)); Button(onClick = { signIn() }, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = actionColors()) { Text(if (busy) "Signing in…" else "Sign in with email", fontWeight = FontWeight.Bold) }
             Row { TextButton(onClick = { createAccount() }, enabled = !busy) { Text("Create account", color = Accent) }; TextButton(onClick = { resetPassword() }, enabled = !busy) { Text("Reset password", color = Accent) } }
+            Spacer(Modifier.height(12.dp)); HorizontalDivider(color = Color(0xFF34393D)); Spacer(Modifier.height(12.dp)); OutlinedButton(onClick = { signInWithGoogle() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.AccountCircle, null); Spacer(Modifier.width(8.dp)); Text("Continue with Google") }
         } else {
             Text("Signed in as ${authIdentity?.email ?: "school account"}.", color = Ink, fontSize = 14.sp); Spacer(Modifier.height(10.dp)); OutlinedButton(onClick = { signOut() }, enabled = !busy) { Text("Sign out") }
         }
@@ -244,6 +245,7 @@ class ReceiverActivity : ComponentActivity() {
 
     private fun saveDeviceName() { val value = nameValue.trim(); if (value.isBlank()) { statusTitle = "Name required"; statusDetail = "Choose a recognizable Receiver name."; return }; identity.setName(value); nameValue = value; statusTitle = "Device name saved"; statusDetail = "$value will appear to Sender after connection." }
     private fun signIn() = lifecycleScope.launch { busy = true; runCatching { authSession.signInWithEmail(emailValue.trim(), passwordValue) }.onSuccess { authIdentity = it; passwordValue = ""; statusTitle = "Account connected"; statusDetail = "Now connect this named Receiver." }.onFailure { statusTitle = "Sign-in failed"; statusDetail = it.message ?: "Firebase authentication did not complete." }; busy = false }
+    private fun signInWithGoogle() = lifecycleScope.launch { busy = true; runCatching { authSession.signInWithGoogle(BuildConfig.GOOGLE_WEB_CLIENT_ID) }.onSuccess { authIdentity = it; statusTitle = "Google account connected"; statusDetail = "Now connect this named Receiver." }.onFailure { statusTitle = "Google Sign-In failed"; statusDetail = it.message ?: "Google Sign-In did not complete." }; busy = false }
     private fun createAccount() = lifecycleScope.launch { busy = true; runCatching { authSession.createEmailAccount(emailValue.trim(), passwordValue) }.onSuccess { authIdentity = it; passwordValue = ""; statusTitle = "Account created"; statusDetail = "Name the device and connect it." }.onFailure { statusTitle = "Could not create account"; statusDetail = it.message ?: "Firebase authentication did not complete." }; busy = false }
     private fun resetPassword() = lifecycleScope.launch { busy = true; runCatching { authSession.sendPasswordReset(emailValue.trim()) }.onSuccess { statusTitle = "Reset email sent"; statusDetail = "Check the inbox for $emailValue." }.onFailure { statusTitle = "Reset failed"; statusDetail = it.message ?: "Could not send the reset email." }; busy = false }
     private fun signOut() = lifecycleScope.launch { busy = true; runCatching { authSession.signOut() }; authIdentity = null; statusTitle = "Signed out"; statusDetail = "Sign in again before refreshing this Receiver connection."; busy = false }
