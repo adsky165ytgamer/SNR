@@ -45,7 +45,7 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.TimeUnit
 
-/** NoticeFlow Receiver v1.1.0 Alpha: guided setup, inbox, and live device connection. */
+/** NoticeFlow Receiver v1.1.1 Alpha: Material 3 guided setup, inbox, and live device connection. */
 class ReceiverActivity : ComponentActivity() {
     private val identity by lazy { ReceiverIdentity(applicationContext) }
     private val authSession by lazy { GoogleAuthSession(this) }
@@ -104,13 +104,17 @@ class ReceiverActivity : ComponentActivity() {
         page.addView(onboardingCard("03  Let notices flow", "Connect once. NoticeFlow then keeps a private inbox on this device and refreshes its live connection."), margins(top = 12))
         val start = MaterialButton(this).apply {
             text = "Begin Receiver setup"
+            isAllCaps = false
+            minHeight = dp(52)
+            cornerRadius = dp(16)
+            backgroundTintList = ColorStateList.valueOf(Color.parseColor("#0E5D5A"))
             setOnClickListener {
                 identity.completeOnboarding()
                 showApplication()
             }
         }
         page.addView(start, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(24) })
-        page.addView(label("v1.1.0 Alpha  ·  Crafted by ad_vibe_dev", Color.parseColor("#9CE1D2"), 12f, Typeface.BOLD).apply {
+        page.addView(label("v1.1.1 Alpha  ·  Crafted by ad_vibe_dev", Color.parseColor("#9CE1D2"), 12f, Typeface.BOLD).apply {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(0, dp(16), 0, 0)
         })
@@ -198,6 +202,7 @@ class ReceiverActivity : ComponentActivity() {
     private fun renderSetup() {
         val body = sectionBody()
         body.addView(sectionTitle("Make this Receiver real", "Three small steps establish an authenticated, named connection."))
+        if (statusTitle != "Welcome to NoticeFlow") body.addView(statusCard(), margins(top = 14))
         body.addView(setupAccountCard(), margins(top = 14))
         body.addView(setupNameCard(), margins(top = 14))
         body.addView(setupConnectCard(), margins(top = 14))
@@ -272,7 +277,7 @@ class ReceiverActivity : ComponentActivity() {
     private fun renderAbout() {
         val body = sectionBody()
         body.addView(sectionTitle("NoticeFlow Receiver", "A focused receiving space for reliable school communication."))
-        body.addView(featureCard("v1.1.0 Alpha", "Built for deliberate delivery", "This Alpha release introduces guided onboarding, separated sections, local inbox history, and a calmer interface."), margins(top = 14))
+        body.addView(featureCard("v1.1.1 Alpha", "Built for deliberate delivery", "This Material 3 update refines navigation, interaction feedback, safe-area behavior, and accessible touch targets without changing the live delivery contract."), margins(top = 14))
         body.addView(featureCard("Created by", "ad_vibe_dev", "NoticeFlow is designed as a proprietary school communication product."), margins(top = 14))
         body.addView(featureCard("License and access", "Proprietary — not open source", "No permission is granted to copy, redistribute, reverse engineer, or publish this application or its source without written authorization from the creator."), margins(top = 14))
         body.addView(secondaryButton("Replay introduction") { identity.resetOnboarding(); showOnboarding() }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)).apply { topMargin = dp(16) })
@@ -382,6 +387,18 @@ class ReceiverActivity : ComponentActivity() {
         })
     }
 
+    private fun statusCard(): MaterialCardView = card().apply {
+        val isAttention = statusTitle.contains("attention", ignoreCase = true) ||
+            statusTitle.contains("failed", ignoreCase = true) ||
+            statusTitle.contains("required", ignoreCase = true)
+        addView(LinearLayout(this@ReceiverActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            addView(label(statusTitle, if (isAttention) Color.parseColor("#8A5A00") else Color.parseColor("#0E5D5A"), 16f, Typeface.BOLD))
+            addView(label(statusDetail, Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(6), 0, 0) })
+        })
+    }
+
     private fun noticeCard(notice: NoticeRecord): MaterialCardView = featureCard(
         DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(notice.receivedAt)), notice.title, notice.body,
     )
@@ -407,8 +424,30 @@ class ReceiverActivity : ComponentActivity() {
         strokeWidth = dp(1)
     }
 
-    private fun primaryButton(text: String, action: () -> Unit) = MaterialButton(this).apply { this.text = text; setOnClickListener { action() } }
-    private fun secondaryButton(text: String, action: () -> Unit) = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply { this.text = text; isAllCaps = false; setOnClickListener { action() } }
+    private fun primaryButton(text: String, action: () -> Unit) = MaterialButton(this).apply {
+        this.text = text
+        isAllCaps = false
+        textSize = 14f
+        minHeight = dp(48)
+        cornerRadius = dp(16)
+        insetTop = 0
+        insetBottom = 0
+        backgroundTintList = ColorStateList.valueOf(Color.parseColor("#0E5D5A"))
+        setTextColor(Color.WHITE)
+        setOnClickListener { action() }
+    }
+    private fun secondaryButton(text: String, action: () -> Unit) = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+        this.text = text
+        isAllCaps = false
+        textSize = 14f
+        minHeight = dp(46)
+        cornerRadius = dp(16)
+        insetTop = 0
+        insetBottom = 0
+        strokeColor = ColorStateList.valueOf(Color.parseColor("#B0CFC8"))
+        setTextColor(Color.parseColor("#0E5D5A"))
+        setOnClickListener { action() }
+    }
     private fun emailField(hint: String) = TextInputEditText(this).apply { setSingleLine(); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS; contentDescription = hint }
     private fun passwordField() = TextInputEditText(this).apply { setSingleLine(); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
     private fun outlinedInput(hint: String, input: TextInputEditText, helper: String? = null) = TextInputLayout(this).apply { this.hint = hint; boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE; helperText = helper; if (hint == "Password") endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE; addView(input) }
@@ -417,10 +456,18 @@ class ReceiverActivity : ComponentActivity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     private fun applyInsets(page: View, header: View, bottom: View?) {
+        val headerLeft = header.paddingLeft
+        val headerTop = header.paddingTop
+        val headerRight = header.paddingRight
+        val headerBottom = header.paddingBottom
+        val bottomLeft = bottom?.paddingLeft ?: 0
+        val bottomTop = bottom?.paddingTop ?: 0
+        val bottomRight = bottom?.paddingRight ?: 0
+        val bottomBottom = bottom?.paddingBottom ?: 0
         ViewCompat.setOnApplyWindowInsetsListener(page) { _, insets ->
             val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            header.setPadding(header.paddingLeft + safe.left, header.paddingTop + safe.top, header.paddingRight + safe.right, header.paddingBottom)
-            bottom?.setPadding(bottom.paddingLeft + safe.left, bottom.paddingTop, bottom.paddingRight + safe.right, bottom.paddingBottom + safe.bottom)
+            header.setPadding(headerLeft + safe.left, headerTop + safe.top, headerRight + safe.right, headerBottom)
+            bottom?.setPadding(bottomLeft + safe.left, bottomTop, bottomRight + safe.right, bottomBottom + safe.bottom)
             insets
         }
         ViewCompat.requestApplyInsets(page)
