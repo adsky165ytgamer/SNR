@@ -12,8 +12,8 @@ android {
         applicationId = "app.receiver"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.1.3-beta-receiver-v2"
+        versionCode = 7
+        versionName = "1.1.4-beta-firebase"
         buildConfigField("String", "BACKEND_BASE_URL", "\"${providers.gradleProperty("BACKEND_BASE_URL").getOrElse("https://replace-with-your-backend.example").trimEnd('/')}\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${providers.gradleProperty("GOOGLE_WEB_CLIENT_ID").getOrElse("replace-with-production-web-client-id")}\"")
         buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${providers.gradleProperty("FIREBASE_PROJECT_ID").getOrElse("school-notics")}\"")
