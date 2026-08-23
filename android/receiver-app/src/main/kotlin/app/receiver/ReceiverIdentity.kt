@@ -48,28 +48,34 @@ class ReceiverIdentity(context: Context) {
                     val title = item.optString("title").trim()
                     val body = item.optString("body").trim()
                     if (title.isNotEmpty() && body.isNotEmpty()) {
-                        add(NoticeRecord(title, body, item.optLong("receivedAt", 0L)))
+                        val receivedAt = item.optLong("receivedAt", 0L)
+                        val id = item.optString("id").trim().ifBlank { "legacy-$index-$receivedAt" }
+                        add(NoticeRecord(id, title, body, receivedAt))
                     }
                 }
             }
         }.getOrDefault(emptyList())
     }
 
-    fun recordNotice(title: String, body: String) {
-        val next = listOf(NoticeRecord(title.trim(), body.trim(), System.currentTimeMillis())) + noticeHistory()
+    @Synchronized
+    fun recordNotice(title: String, body: String, noticeId: String? = null) {
+        val receivedAt = System.currentTimeMillis()
+        val id = noticeId?.trim()?.takeIf { it.isNotEmpty() } ?: "local-$receivedAt-${UUID.randomUUID()}"
+        val next = listOf(NoticeRecord(id, title.trim(), body.trim(), receivedAt)) + noticeHistory()
         val array = JSONArray()
         next.filter { it.title.isNotBlank() && it.body.isNotBlank() }
-            .distinctBy { "${it.title}\u0000${it.body}" }
+            .distinctBy { it.id }
             .take(MAX_HISTORY)
             .forEach { notice ->
                 array.put(JSONObject()
+                    .put("id", notice.id)
                     .put("title", notice.title)
                     .put("body", notice.body)
                     .put("receivedAt", notice.receivedAt))
             }
         preferences.edit()
             .putString("notice_history", array.toString())
-            .apply()
+            .commit()
     }
 
     fun clearNoticeHistory() = preferences.edit()
@@ -82,6 +88,7 @@ class ReceiverIdentity(context: Context) {
 }
 
 data class NoticeRecord(
+    val id: String,
     val title: String,
     val body: String,
     val receivedAt: Long,

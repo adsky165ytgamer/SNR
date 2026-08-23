@@ -92,9 +92,8 @@ class FirebaseMessagingGateway implements FcmGateway {
   sendTestNotice(input: { receiverId: string; fcmToken: string; noticeId: string; title: string; body: string; type: "TEST" }): Promise<string> {
     return this.messaging.send({
       token: input.fcmToken,
-      notification: { title: input.title, body: input.body },
       data: { noticeId: input.noticeId, type: input.type, receiverId: input.receiverId, title: input.title, body: input.body },
-      android: { priority: "high", notification: { channelId: "school_notice_test" } }
+      android: { priority: "high" }
     });
   }
 }

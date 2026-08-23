@@ -28,7 +28,7 @@ class NoticeMessagingService : FirebaseMessagingService() {
         val title = message.data["title"] ?: message.notification?.title ?: "School Notice"
         val body = message.data["body"] ?: message.notification?.body ?: "You have a new notice."
         val noticeId = message.data["noticeId"]?.takeIf { it.isNotBlank() } ?: "notice-${System.currentTimeMillis()}"
-        ReceiverIdentity(applicationContext).recordNotice(title, body)
+        ReceiverIdentity(applicationContext).recordNotice(title, body, noticeId)
 
         FirebaseBootstrap.ensureInitialized(applicationContext)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
