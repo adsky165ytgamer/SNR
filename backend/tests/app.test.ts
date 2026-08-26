@@ -10,7 +10,7 @@ class MemoryStore implements ReceiverStore {
   async listReceivers() { return [...this.records.values()]; }
   async getReceiver(receiverId: string) { return this.records.get(receiverId) ?? null; }
 }
-class MemoryFcm implements FcmGateway { sent: { receiverId: string; title: string; body: string }[] = []; async sendTestNotice(input: { receiverId: string; fcmToken: string; noticeId: string; title: string; body: string; type: "TEST" }) { this.sent.push(input); return "projects/test/messages/abc"; } }
+class MemoryFcm implements FcmGateway { sent: Parameters<FcmGateway["sendTestNotice"]>[0][] = []; async sendTestNotice(input: Parameters<FcmGateway["sendTestNotice"]>[0]) { this.sent.push(input); return "projects/test/messages/abc"; } }
 
 test("V0.1 registers without returning the FCM token and sends a real gateway request", async () => {
   const store = new MemoryStore(); const fcm = new MemoryFcm(); const app = await createApp({ store, fcm }); const receiverId = "db870847-a78c-4926-8be7-498864df0711";
@@ -18,13 +18,13 @@ test("V0.1 registers without returning the FCM token and sends a real gateway re
   assert.equal(registered.statusCode, 200);
   const receivers = await app.inject({ method: "GET", url: "/api/v1/receivers" });
   assert.equal(receivers.statusCode, 200); assert.equal(receivers.body.includes("token-from-firebase"), false);
-  const notice = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test Notice", body: "Backend to Receiver", type: "TEST" } });
-  assert.equal(notice.statusCode, 200); assert.equal(fcm.sent.length, 1); await app.close();
+  const notice = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test Notice", body: "Backend to Receiver", type: "NOTICE" } });
+  assert.equal(notice.statusCode, 200); assert.equal(fcm.sent.length, 1); assert.equal(fcm.sent[0]?.type, "NOTICE"); await app.close();
 });
 
 test("V0.1 rejects missing receivers", async () => {
   const app = await createApp({ store: new MemoryStore(), fcm: new MemoryFcm() });
-  const response = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId: "db870847-a78c-4926-8be7-498864df0711", title: "Test", body: "Test", type: "TEST" } });
+  const response = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId: "db870847-a78c-4926-8be7-498864df0711", title: "Test", body: "Test", type: "HOMEWORK" } });
   assert.equal(response.statusCode, 404); assert.equal(JSON.parse(response.body).error, "RECEIVER_NOT_FOUND"); await app.close();
 });
 
@@ -33,7 +33,7 @@ test("V0.1 maps a rejected Firebase registration token to a safe 409 response", 
   await store.upsertReceiver({ receiverId, ownerUid: "prototype-anonymous", name: null, fcmToken: "expired-token", appVersion: null });
   const fcm: FcmGateway = { async sendTestNotice() { throw { code: "messaging/registration-token-not-registered" }; } };
   const app = await createApp({ store, fcm });
-  const response = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test", body: "Test", type: "TEST" } });
+  const response = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test", body: "Test", type: "NEWS" } });
   assert.equal(response.statusCode, 409); assert.equal(JSON.parse(response.body).error, "INVALID_FCM_TOKEN"); await app.close();
 });
 
@@ -56,4 +56,14 @@ test("V0.1 rejects malformed JSON with a safe 400 response", async () => {
   const app = await createApp({ store: new MemoryStore(), fcm: new MemoryFcm() });
   const response = await app.inject({ method: "POST", url: "/api/v1/receivers/register", headers: { "content-type": "application/json" }, payload: "{not valid json" });
   assert.equal(response.statusCode, 400); assert.equal(JSON.parse(response.body).error, "INVALID_REQUEST_BODY"); await app.close();
+});
+
+test("V0.1 rejects unsupported categories while normalizing legacy TEST to Notice", async () => {
+  const store = new MemoryStore(); const fcm = new MemoryFcm(); const receiverId = "db870847-a78c-4926-8be7-498864df0711";
+  await store.upsertReceiver({ receiverId, ownerUid: "prototype-anonymous", name: null, fcmToken: "token-from-firebase", appVersion: null });
+  const app = await createApp({ store, fcm });
+  const unsupported = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test", body: "Test", type: "IMPORTANT" } });
+  assert.equal(unsupported.statusCode, 400);
+  const legacy = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test", body: "Test", type: "TEST" } });
+  assert.equal(legacy.statusCode, 200); assert.equal(fcm.sent[0]?.type, "NOTICE"); await app.close();
 });

@@ -1,7 +1,7 @@
 import { App, applicationDefault, cert, getApp, getApps, initializeApp } from "firebase-admin/app";
 import { FieldValue, Firestore, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { Messaging, getMessaging } from "firebase-admin/messaging";
-import { FcmGateway, ReceiverRecord, ReceiverRegistration, ReceiverStore } from "./domain.js";
+import { FcmGateway, NoticeCategory, ReceiverRecord, ReceiverRegistration, ReceiverStore } from "./domain.js";
 
 const asIsoString = (value: unknown): string | null => value instanceof Timestamp ? value.toDate().toISOString() : null;
 
@@ -13,7 +13,7 @@ export function firebaseAdminApp(): App {
   return initializeApp({ credential: applicationDefault(), projectId });
 }
 
-export function createFirebaseDependencies(): { store: ReceiverStore; fcm: FcmGateway; logNotice: (input: { noticeId: string; senderUid: string; receiverId: string; title: string; body: string; messageId: string; type: "TEST" }) => Promise<void> } {
+export function createFirebaseDependencies(): { store: ReceiverStore; fcm: FcmGateway; logNotice: (input: { noticeId: string; senderUid: string; receiverId: string; title: string; body: string; messageId: string; type: NoticeCategory }) => Promise<void> } {
   const app = firebaseAdminApp();
   const firestore = getFirestore(app);
   return {
@@ -89,7 +89,7 @@ class FirestoreReceiverStore implements ReceiverStore {
 
 class FirebaseMessagingGateway implements FcmGateway {
   constructor(private readonly messaging: Messaging) {}
-  sendTestNotice(input: { receiverId: string; fcmToken: string; noticeId: string; title: string; body: string; type: "TEST" }): Promise<string> {
+  sendTestNotice(input: { receiverId: string; fcmToken: string; noticeId: string; title: string; body: string; type: NoticeCategory }): Promise<string> {
     return this.messaging.send({
       token: input.fcmToken,
       data: { noticeId: input.noticeId, type: input.type, receiverId: input.receiverId, title: input.title, body: input.body },

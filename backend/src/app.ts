@@ -4,7 +4,7 @@ import rateLimit from "@fastify/rate-limit";
 import Fastify, { FastifyInstance, FastifyReply } from "fastify";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { AuthenticatedUser, AuthVerifier, FcmGateway, ReceiverStore, toPublicReceiver } from "./domain.js";
+import { AuthenticatedUser, AuthVerifier, FcmGateway, NoticeCategory, NoticeCategoryValues, ReceiverStore, toPublicReceiver } from "./domain.js";
 
 type NoticeLogInput = {
   noticeId: string;
@@ -13,13 +13,14 @@ type NoticeLogInput = {
   title: string;
   body: string;
   messageId: string;
-  type: "TEST";
+  type: NoticeCategory;
 };
 
 const receiverId = z.string().uuid();
 const registerSchema = z.object({ receiverId, name: z.string().trim().min(1).max(120).nullable().optional(), fcmToken: z.string().trim().min(1).max(16_384), appVersion: z.string().trim().min(1).max(80).nullable().optional() });
 const heartbeatSchema = z.object({ receiverId, appVersion: z.string().trim().min(1).max(80).nullable().optional() });
-const testNoticeSchema = z.object({ receiverId, title: z.string().trim().min(1).max(140), body: z.string().trim().min(1).max(4_000), type: z.literal("TEST") });
+const noticeCategorySchema = z.enum(NoticeCategoryValues);
+const testNoticeSchema = z.object({ receiverId, title: z.string().trim().min(1).max(140), body: z.string().trim().min(1).max(4_000), type: z.union([noticeCategorySchema, z.literal("TEST")]) });
 
 function validationError(reply: FastifyReply, error: z.ZodError) {
   return reply.code(400).send({ success: false, error: "VALIDATION_ERROR", details: error.flatten() });
@@ -116,9 +117,10 @@ export async function createApp(dependencies: {
     if (!receiver.enabled) return reply.code(409).send({ success: false, error: "RECEIVER_DISABLED" });
     if (!receiver.fcmToken.trim()) return reply.code(409).send({ success: false, error: "INVALID_FCM_TOKEN" });
     const noticeId = randomUUID();
+    const type: NoticeCategory = parsed.data.type === "TEST" ? "NOTICE" : parsed.data.type;
     try {
-      const messageId = await dependencies.fcm.sendTestNotice({ receiverId: receiver.receiverId, fcmToken: receiver.fcmToken, noticeId, title: parsed.data.title, body: parsed.data.body, type: "TEST" });
-      await dependencies.logNotice?.({ noticeId, senderUid: user?.uid ?? "prototype-anonymous", receiverId: receiver.receiverId, title: parsed.data.title, body: parsed.data.body, messageId, type: "TEST" });
+      const messageId = await dependencies.fcm.sendTestNotice({ receiverId: receiver.receiverId, fcmToken: receiver.fcmToken, noticeId, title: parsed.data.title, body: parsed.data.body, type });
+      await dependencies.logNotice?.({ noticeId, senderUid: user?.uid ?? "prototype-anonymous", receiverId: receiver.receiverId, title: parsed.data.title, body: parsed.data.body, messageId, type });
       request.log.info({ receiverId: receiver.receiverId, noticeId, messageId, senderUid: user?.uid }, "FCM test notice sent");
       return reply.code(200).send({ success: true, message: "Notification sent", receiverId: receiver.receiverId, messageId });
     } catch (error) {

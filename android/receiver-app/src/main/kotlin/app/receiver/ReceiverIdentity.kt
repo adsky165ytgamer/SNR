@@ -50,7 +50,7 @@ class ReceiverIdentity(context: Context) {
                     if (title.isNotEmpty() && body.isNotEmpty()) {
                         val receivedAt = item.optLong("receivedAt", 0L)
                         val id = item.optString("id").trim().ifBlank { "legacy-$index-$receivedAt" }
-                        add(NoticeRecord(id, title, body, receivedAt))
+                        add(NoticeRecord(id, title, body, receivedAt, NoticeCategory.fromWire(item.optString("category"))))
                     }
                 }
             }
@@ -58,10 +58,10 @@ class ReceiverIdentity(context: Context) {
     }
 
     @Synchronized
-    fun recordNotice(title: String, body: String, noticeId: String? = null) {
+    fun recordNotice(title: String, body: String, noticeId: String? = null, category: NoticeCategory = NoticeCategory.NOTICE) {
         val receivedAt = System.currentTimeMillis()
         val id = noticeId?.trim()?.takeIf { it.isNotEmpty() } ?: "local-$receivedAt-${UUID.randomUUID()}"
-        val next = listOf(NoticeRecord(id, title.trim(), body.trim(), receivedAt)) + noticeHistory()
+        val next = listOf(NoticeRecord(id, title.trim(), body.trim(), receivedAt, category)) + noticeHistory()
         val array = JSONArray()
         next.filter { it.title.isNotBlank() && it.body.isNotBlank() }
             .distinctBy { it.id }
@@ -71,7 +71,8 @@ class ReceiverIdentity(context: Context) {
                     .put("id", notice.id)
                     .put("title", notice.title)
                     .put("body", notice.body)
-                    .put("receivedAt", notice.receivedAt))
+                    .put("receivedAt", notice.receivedAt)
+                    .put("category", notice.category.wireValue))
             }
         preferences.edit()
             .putString("notice_history", array.toString())
@@ -82,8 +83,39 @@ class ReceiverIdentity(context: Context) {
         .remove("notice_history")
         .apply()
 
+    @Synchronized
+    fun claimOverlayPresentation(noticeId: String): Boolean {
+        val id = noticeId.trim()
+        if (id.isBlank()) return false
+        val shown = overlayPresentationIds()
+        if (id in shown) return false
+        preferences.edit()
+            .putString("overlay_displayed_ids", JSONArray((listOf(id) + shown).distinct().take(MAX_OVERLAY_HISTORY)).toString())
+            .commit()
+        return true
+    }
+
+    @Synchronized
+    fun releaseOverlayPresentation(noticeId: String) {
+        val id = noticeId.trim()
+        if (id.isBlank()) return
+        preferences.edit()
+            .putString("overlay_displayed_ids", JSONArray(overlayPresentationIds().filterNot { it == id }).toString())
+            .commit()
+    }
+
+    private fun overlayPresentationIds(): List<String> = runCatching {
+        val array = JSONArray(preferences.getString("overlay_displayed_ids", "[]"))
+        buildList {
+            for (index in 0 until array.length()) {
+                array.optString(index).trim().takeIf { it.isNotBlank() }?.let(::add)
+            }
+        }
+    }.getOrDefault(emptyList())
+
     companion object {
         private const val MAX_HISTORY = 20
+        private const val MAX_OVERLAY_HISTORY = 50
     }
 }
 
@@ -92,4 +124,5 @@ data class NoticeRecord(
     val title: String,
     val body: String,
     val receivedAt: Long,
+    val category: NoticeCategory,
 )

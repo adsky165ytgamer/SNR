@@ -1,3 +1,6 @@
+export const NoticeCategoryValues = ["HOMEWORK", "NOTICE", "NEWS"] as const;
+export type NoticeCategory = (typeof NoticeCategoryValues)[number];
+
 export type ReceiverRecord = {
   receiverId: string;
   ownerUid: string | null;
@@ -39,7 +42,7 @@ export type AuthVerifier = {
 };
 
 export type FcmGateway = {
-  sendTestNotice(input: { receiverId: string; fcmToken: string; noticeId: string; title: string; body: string; type: "TEST" }): Promise<string>;
+  sendTestNotice(input: { receiverId: string; fcmToken: string; noticeId: string; title: string; body: string; type: NoticeCategory }): Promise<string>;
 };
 
 export const toPublicReceiver = (receiver: ReceiverRecord): ReceiverPublic => ({

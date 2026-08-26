@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.app.PendingIntent
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.receiver.auth.FirebaseBootstrap
@@ -28,7 +29,15 @@ class NoticeMessagingService : FirebaseMessagingService() {
         val title = message.data["title"] ?: message.notification?.title ?: "School Notice"
         val body = message.data["body"] ?: message.notification?.body ?: "You have a new notice."
         val noticeId = message.data["noticeId"]?.takeIf { it.isNotBlank() } ?: "notice-${System.currentTimeMillis()}"
-        ReceiverIdentity(applicationContext).recordNotice(title, body, noticeId)
+        val category = NoticeCategory.fromWire(message.data["type"])
+        val notice = NoticeRecord(noticeId, title.trim(), body.trim(), System.currentTimeMillis(), category)
+        ReceiverIdentity(applicationContext).recordNotice(notice.title, notice.body, notice.id, notice.category)
+        Log.d("NoticeMessaging", "Notice received noticeId=$noticeId category=${category.wireValue}")
+        if (!ReceiverPresentationState.isForeground()) {
+            NoticeOverlayController(applicationContext).presentIfAllowed(notice)
+        } else {
+            Log.d("NoticeMessaging", "Receiver is foreground; keeping notice in app and notification presentation")
+        }
 
         FirebaseBootstrap.ensureInitialized(applicationContext)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

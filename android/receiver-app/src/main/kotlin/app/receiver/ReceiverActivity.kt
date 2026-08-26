@@ -80,6 +80,7 @@ class ReceiverActivity : ComponentActivity() {
     private var busy by mutableStateOf(false)
     private var tab by mutableStateOf(ReceiverTab.HOME)
     private var inboxRevision by mutableIntStateOf(0)
+    private var overlayPermissionGranted by mutableStateOf(false)
     private val receiverPreferences by lazy { getSharedPreferences("receiver_identity", Context.MODE_PRIVATE) }
     private val noticeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "notice_history") runOnUiThread { inboxRevision++ }
@@ -89,6 +90,7 @@ class ReceiverActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        overlayPermissionGranted = NoticeOverlayController.canDrawOverOtherApps(this)
         nameValue = identity.name().orEmpty()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "receiver-heartbeat", ExistingPeriodicWorkPolicy.UPDATE,
@@ -108,9 +110,9 @@ class ReceiverActivity : ComponentActivity() {
         openInboxForNotification(intent)
     }
 
-    override fun onStart() { super.onStart(); receiverPreferences.registerOnSharedPreferenceChangeListener(noticeListener) }
-    override fun onStop() { receiverPreferences.unregisterOnSharedPreferenceChangeListener(noticeListener); super.onStop() }
-    override fun onResume() { super.onResume(); inboxRevision++ }
+    override fun onStart() { super.onStart(); ReceiverPresentationState.markForeground(true); receiverPreferences.registerOnSharedPreferenceChangeListener(noticeListener) }
+    override fun onStop() { ReceiverPresentationState.markForeground(false); receiverPreferences.unregisterOnSharedPreferenceChangeListener(noticeListener); super.onStop() }
+    override fun onResume() { super.onResume(); overlayPermissionGranted = NoticeOverlayController.canDrawOverOtherApps(this); inboxRevision++ }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); openInboxForNotification(intent) }
 
     private fun openInboxForNotification(intent: Intent?) {
@@ -202,7 +204,7 @@ class ReceiverActivity : ComponentActivity() {
 
     @Composable private fun NoticeCard(notice: NoticeRecord) = Surface(shape = RoundedCornerShape(22.dp), color = Panel, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp)) {
-            Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(notice.receivedAt)), color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text("${notice.category.label.uppercase()} • ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(notice.receivedAt))}", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Text(notice.title, color = Ink, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 9.dp))
             Text(notice.body, color = Muted, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 6.dp))
         }
@@ -223,6 +225,7 @@ class ReceiverActivity : ComponentActivity() {
         item { ScreenHeading("Settings", "Account, connection and application controls.") }
         item { AccountCard() }
         item { ConnectionActionCard() }
+        item { OverlaySetupCard() }
         item { SectionCard("About NoticeFlow", "Receiver v1.1.6 Beta", Icons.Default.Info) { Text("A focused school communication receiver with a live local inbox.", color = Muted, fontSize = 14.sp) } }
     }
 
@@ -241,6 +244,29 @@ class ReceiverActivity : ComponentActivity() {
     @Composable private fun ConnectionActionCard() = SectionCard("Live connection", statusTitle, Icons.Default.Wifi) {
         Text(statusDetail, color = Muted, fontSize = 14.sp, lineHeight = 21.sp); Spacer(Modifier.height(12.dp))
         Button(onClick = { registerReceiver() }, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = actionColors()) { Text(if (busy) "Connecting…" else if (identity.lastRegisteredAt() > 0L) "Refresh connection" else "Connect Receiver", fontWeight = FontWeight.Bold) }
+    }
+
+    @Composable private fun OverlaySetupCard() = SectionCard(
+        "Display notices over other apps",
+        if (overlayPermissionGranted) "Enabled by Android" else "Optional Android permission",
+        Icons.Default.NotificationsActive,
+    ) {
+        Text(
+            if (overlayPermissionGranted) {
+                "Notice-category deliveries can appear above another app when this Receiver is in the background. Homework and News continue using the normal notification and Inbox flow."
+            } else {
+                "To show Notice-category deliveries while another app is open, Android requires Display Over Other Apps permission. Without it, every delivery remains in the local Inbox and the existing high-priority notification flow."
+            },
+            color = Muted,
+            fontSize = 14.sp,
+            lineHeight = 21.sp,
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = { startActivity(NoticeOverlayController.overlaySettingsIntent(this@ReceiverActivity)) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = actionColors(),
+        ) { Text(if (overlayPermissionGranted) "Open Android overlay settings" else "Enable overlay in Android settings", fontWeight = FontWeight.Bold) }
     }
 
     private fun saveDeviceName() { val value = nameValue.trim(); if (value.isBlank()) { statusTitle = "Name required"; statusDetail = "Choose a recognizable Receiver name."; return }; identity.setName(value); nameValue = value; statusTitle = "Device name saved"; statusDetail = "$value will appear to Sender after connection." }
