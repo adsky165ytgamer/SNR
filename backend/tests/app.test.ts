@@ -64,6 +64,6 @@ test("V0.1 rejects unsupported categories while normalizing legacy TEST to Notic
   const app = await createApp({ store, fcm });
   const unsupported = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test", body: "Test", type: "IMPORTANT" } });
   assert.equal(unsupported.statusCode, 400);
-  const legacy = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test", body: "Test", type: "TEST" } });
-  assert.equal(legacy.statusCode, 200); assert.equal(fcm.sent[0]?.type, "NOTICE"); await app.close();
+  const legacy = await app.inject({ method: "POST", url: "/api/v1/test-notice", payload: { receiverId, title: "Test", body: "Test", type: "TEST", category: "NEWS" } });
+  assert.equal(legacy.statusCode, 200); assert.equal(fcm.sent[0]?.type, "NEWS"); await app.close();
 });

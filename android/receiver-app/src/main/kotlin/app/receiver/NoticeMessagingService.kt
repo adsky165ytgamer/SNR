@@ -26,8 +26,10 @@ class NoticeMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        val title = message.data["title"] ?: message.notification?.title ?: "School Notice"
-        val body = message.data["body"] ?: message.notification?.body ?: "You have a new notice."
+        val title = message.data["title"].orEmpty().trim()
+            .ifBlank { message.notification?.title.orEmpty().trim().ifBlank { "School Notice" } }
+        val body = message.data["body"].orEmpty().trim()
+            .ifBlank { message.notification?.body.orEmpty().trim().ifBlank { "You have a new notice." } }
         val noticeId = message.data["noticeId"]?.takeIf { it.isNotBlank() } ?: "notice-${System.currentTimeMillis()}"
         val category = NoticeCategory.fromWire(message.data["type"])
         val notice = NoticeRecord(noticeId, title.trim(), body.trim(), System.currentTimeMillis(), category)

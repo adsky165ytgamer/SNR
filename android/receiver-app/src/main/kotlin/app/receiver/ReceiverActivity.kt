@@ -195,7 +195,7 @@ class ReceiverActivity : ComponentActivity() {
     @Composable private fun InboxScreen() {
         val notices = remember(inboxRevision) { identity.noticeHistory() }
         LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { ScreenHeading("Inbox", "Every delivered notice saved on this Receiver.") }
+            item { ScreenHeading("Inbox", if (notices.isEmpty()) "No persisted deliveries yet. New live notices are saved here first." else "${notices.size} persisted delivery${if (notices.size == 1) "" else "ies"} on this Receiver.") }
             if (notices.isEmpty()) item { EmptyState() }
             items(notices, key = { it.id }) { notice -> NoticeCard(notice) }
             if (notices.isNotEmpty()) item { TextButton(onClick = { identity.clearNoticeHistory(); inboxRevision++ }, modifier = Modifier.fillMaxWidth()) { Text("Clear local inbox", color = Accent) } }
@@ -218,6 +218,7 @@ class ReceiverActivity : ComponentActivity() {
         } }
         item { SectionCard("Connection identity", "Local installation details", Icons.Default.Fingerprint) { KeyValue("Receiver ID", identity.receiverId()); Spacer(Modifier.height(10.dp)); KeyValue("Last registered", registrationLabel()); Spacer(Modifier.height(12.dp)); OutlinedButton(onClick = { copy(identity.receiverId()) }) { Icon(Icons.Default.ContentCopy, null); Spacer(Modifier.width(8.dp)); Text("Copy receiver ID") } } }
         item { SectionCard("Cloud status", "Firebase + backend", Icons.Default.Cloud) { KeyValue("Account", authIdentity?.email ?: "Not signed in"); Spacer(Modifier.height(10.dp)); KeyValue("FCM", if (identity.lastRegisteredAt() > 0L) "Registered" else "Waiting for registration") } }
+        item { OverlaySetupCard() }
         item { Button(onClick = { tab = ReceiverTab.SETTINGS }, modifier = Modifier.fillMaxWidth(), colors = actionColors()) { Text("Open connection settings", fontWeight = FontWeight.Bold) } }
     }
 
@@ -226,7 +227,7 @@ class ReceiverActivity : ComponentActivity() {
         item { AccountCard() }
         item { ConnectionActionCard() }
         item { OverlaySetupCard() }
-        item { SectionCard("About NoticeFlow", "Receiver v1.1.6 Beta", Icons.Default.Info) { Text("A focused school communication receiver with a live local inbox.", color = Muted, fontSize = 14.sp) } }
+        item { SectionCard("About NoticeFlow", "Receiver ${packageManager.getPackageInfo(packageName, 0).versionName}", Icons.Default.Info) { Text("Testing-1 build with live local Inbox persistence and optional Android overlay presentation.", color = Muted, fontSize = 14.sp) } }
     }
 
     @Composable private fun AccountCard() = SectionCard("School account", authIdentity?.email ?: "Sign in to connect this Receiver", Icons.Default.AccountCircle) {

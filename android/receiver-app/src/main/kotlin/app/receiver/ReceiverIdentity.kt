@@ -57,51 +57,54 @@ class ReceiverIdentity(context: Context) {
         }.getOrDefault(emptyList())
     }
 
-    @Synchronized
     fun recordNotice(title: String, body: String, noticeId: String? = null, category: NoticeCategory = NoticeCategory.NOTICE) {
-        val receivedAt = System.currentTimeMillis()
-        val id = noticeId?.trim()?.takeIf { it.isNotEmpty() } ?: "local-$receivedAt-${UUID.randomUUID()}"
-        val next = listOf(NoticeRecord(id, title.trim(), body.trim(), receivedAt, category)) + noticeHistory()
-        val array = JSONArray()
-        next.filter { it.title.isNotBlank() && it.body.isNotBlank() }
-            .distinctBy { it.id }
-            .take(MAX_HISTORY)
-            .forEach { notice ->
-                array.put(JSONObject()
-                    .put("id", notice.id)
-                    .put("title", notice.title)
-                    .put("body", notice.body)
-                    .put("receivedAt", notice.receivedAt)
-                    .put("category", notice.category.wireValue))
-            }
-        preferences.edit()
-            .putString("notice_history", array.toString())
-            .commit()
+        synchronized(noticeHistoryLock) {
+            val receivedAt = System.currentTimeMillis()
+            val id = noticeId?.trim()?.takeIf { it.isNotEmpty() } ?: "local-$receivedAt-${UUID.randomUUID()}"
+            val next = listOf(NoticeRecord(id, title.trim(), body.trim(), receivedAt, category)) + noticeHistory()
+            val array = JSONArray()
+            next.filter { it.title.isNotBlank() && it.body.isNotBlank() }
+                .distinctBy { it.id }
+                .take(MAX_HISTORY)
+                .forEach { notice ->
+                    array.put(JSONObject()
+                        .put("id", notice.id)
+                        .put("title", notice.title)
+                        .put("body", notice.body)
+                        .put("receivedAt", notice.receivedAt)
+                        .put("category", notice.category.wireValue))
+                }
+            preferences.edit()
+                .putString("notice_history", array.toString())
+                .commit()
+        }
     }
 
     fun clearNoticeHistory() = preferences.edit()
         .remove("notice_history")
         .apply()
 
-    @Synchronized
     fun claimOverlayPresentation(noticeId: String): Boolean {
-        val id = noticeId.trim()
-        if (id.isBlank()) return false
-        val shown = overlayPresentationIds()
-        if (id in shown) return false
-        preferences.edit()
-            .putString("overlay_displayed_ids", JSONArray((listOf(id) + shown).distinct().take(MAX_OVERLAY_HISTORY)).toString())
-            .commit()
-        return true
+        synchronized(noticeHistoryLock) {
+            val id = noticeId.trim()
+            if (id.isBlank()) return false
+            val shown = overlayPresentationIds()
+            if (id in shown) return false
+            preferences.edit()
+                .putString("overlay_displayed_ids", JSONArray((listOf(id) + shown).distinct().take(MAX_OVERLAY_HISTORY)).toString())
+                .commit()
+            return true
+        }
     }
 
-    @Synchronized
     fun releaseOverlayPresentation(noticeId: String) {
-        val id = noticeId.trim()
-        if (id.isBlank()) return
-        preferences.edit()
-            .putString("overlay_displayed_ids", JSONArray(overlayPresentationIds().filterNot { it == id }).toString())
-            .commit()
+        synchronized(noticeHistoryLock) {
+            val id = noticeId.trim()
+            if (id.isBlank()) return
+            preferences.edit()
+                .putString("overlay_displayed_ids", JSONArray(overlayPresentationIds().filterNot { it == id }).toString())
+                .commit()
+        }
     }
 
     private fun overlayPresentationIds(): List<String> = runCatching {
@@ -114,6 +117,7 @@ class ReceiverIdentity(context: Context) {
     }.getOrDefault(emptyList())
 
     companion object {
+        private val noticeHistoryLock = Any()
         private const val MAX_HISTORY = 20
         private const val MAX_OVERLAY_HISTORY = 50
     }

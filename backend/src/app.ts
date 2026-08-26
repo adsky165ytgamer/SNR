@@ -20,7 +20,7 @@ const receiverId = z.string().uuid();
 const registerSchema = z.object({ receiverId, name: z.string().trim().min(1).max(120).nullable().optional(), fcmToken: z.string().trim().min(1).max(16_384), appVersion: z.string().trim().min(1).max(80).nullable().optional() });
 const heartbeatSchema = z.object({ receiverId, appVersion: z.string().trim().min(1).max(80).nullable().optional() });
 const noticeCategorySchema = z.enum(NoticeCategoryValues);
-const testNoticeSchema = z.object({ receiverId, title: z.string().trim().min(1).max(140), body: z.string().trim().min(1).max(4_000), type: z.union([noticeCategorySchema, z.literal("TEST")]) });
+const testNoticeSchema = z.object({ receiverId, title: z.string().trim().min(1).max(140), body: z.string().trim().min(1).max(4_000), type: z.union([noticeCategorySchema, z.literal("TEST")]), category: noticeCategorySchema.optional() });
 
 function validationError(reply: FastifyReply, error: z.ZodError) {
   return reply.code(400).send({ success: false, error: "VALIDATION_ERROR", details: error.flatten() });
@@ -117,7 +117,7 @@ export async function createApp(dependencies: {
     if (!receiver.enabled) return reply.code(409).send({ success: false, error: "RECEIVER_DISABLED" });
     if (!receiver.fcmToken.trim()) return reply.code(409).send({ success: false, error: "INVALID_FCM_TOKEN" });
     const noticeId = randomUUID();
-    const type: NoticeCategory = parsed.data.type === "TEST" ? "NOTICE" : parsed.data.type;
+    const type: NoticeCategory = parsed.data.type === "TEST" ? (parsed.data.category ?? "NOTICE") : parsed.data.type;
     try {
       const messageId = await dependencies.fcm.sendTestNotice({ receiverId: receiver.receiverId, fcmToken: receiver.fcmToken, noticeId, title: parsed.data.title, body: parsed.data.body, type });
       await dependencies.logNotice?.({ noticeId, senderUid: user?.uid ?? "prototype-anonymous", receiverId: receiver.receiverId, title: parsed.data.title, body: parsed.data.body, messageId, type });
