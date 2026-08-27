@@ -33,23 +33,40 @@ class NoticeMessagingService : FirebaseMessagingService() {
         val noticeId = message.data["noticeId"]?.takeIf { it.isNotBlank() } ?: "notice-${System.currentTimeMillis()}"
         val category = NoticeCategory.fromWire(message.data["type"])
         val notice = NoticeRecord(noticeId, title.trim(), body.trim(), System.currentTimeMillis(), category)
-        ReceiverIdentity(applicationContext).recordNotice(notice.title, notice.body, notice.id, notice.category)
+        val identity = ReceiverIdentity(applicationContext)
+        identity.apply {
+            recordNotice(notice.title, notice.body, notice.id, notice.category)
+            recordDeliveryDiagnostic(ReceiverDeliveryState.NOTICE_SAVED)
+        }
         Log.d("NoticeMessaging", "Notice received noticeId=$noticeId category=${category.wireValue}")
-        if (!ReceiverPresentationState.isForeground()) {
+        if (ReceiverPresentationState.shouldPresentOverlay()) {
             NoticeOverlayController(applicationContext).presentIfAllowed(notice)
         } else {
-            Log.d("NoticeMessaging", "Receiver is foreground; keeping notice in app and notification presentation")
+            identity.recordDeliveryDiagnostic(ReceiverDeliveryState.OVERLAY_FOREGROUND_DEFERRED)
+            Log.d("NoticeMessaging", "Receiver is focused; keeping notice in app and notification presentation")
         }
 
         FirebaseBootstrap.ensureInitialized(applicationContext)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(
-            NotificationChannel("school_notice_test", "School notices", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "High-priority school notices delivered by NoticeFlow"
+            NotificationChannel(NOTICE_CHANNEL_ID, "School notice alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "High-priority local alerts for notices delivered by NoticeFlow"
                 setShowBadge(true)
             },
         )
-        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            identity.recordNotificationDiagnostic(ReceiverNotificationState.RUNTIME_PERMISSION_DISABLED)
+            return
+        }
+        val notificationManager = NotificationManagerCompat.from(this)
+        if (!notificationManager.areNotificationsEnabled()) {
+            identity.recordNotificationDiagnostic(ReceiverNotificationState.APP_NOTIFICATIONS_DISABLED)
+            return
+        }
+        if (manager.getNotificationChannel(NOTICE_CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE) {
+            identity.recordNotificationDiagnostic(ReceiverNotificationState.CHANNEL_BLOCKED)
+            return
+        }
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("noticeId", noticeId)
@@ -57,7 +74,7 @@ class NoticeMessagingService : FirebaseMessagingService() {
         val pendingIntent = launchIntent?.let {
             androidx.core.app.PendingIntentCompat.getActivity(this, noticeId.hashCode(), it, PendingIntent.FLAG_UPDATE_CURRENT, false)
         }
-        val notification = NotificationCompat.Builder(this, "school_notice_test")
+        val notification = NotificationCompat.Builder(this, NOTICE_CHANNEL_ID)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle(title)
             .setContentText(body)
@@ -68,7 +85,12 @@ class NoticeMessagingService : FirebaseMessagingService() {
             .setAutoCancel(true)
             .apply { if (pendingIntent != null) setContentIntent(pendingIntent) }
             .build()
-        NotificationManagerCompat.from(this).notify(noticeId.hashCode(), notification)
+        runCatching { notificationManager.notify(noticeId.hashCode(), notification) }
+            .onSuccess { identity.recordNotificationDiagnostic(ReceiverNotificationState.POSTED) }
+            .onFailure { error ->
+                identity.recordNotificationDiagnostic(ReceiverNotificationState.POST_FAILED)
+                Log.w("NoticeMessaging", "Local notification could not be posted", error)
+            }
     }
 
     private suspend fun register(token: String) {
@@ -76,5 +98,9 @@ class NoticeMessagingService : FirebaseMessagingService() {
         val authToken = FirebaseAuth.getInstance().currentUser?.getIdToken(true)?.await()?.token ?: return
         val identity = ReceiverIdentity(applicationContext)
         BackendClient.post("/api/v1/receivers/register", JSONObject().put("receiverId", identity.receiverId()).put("name", identity.name()).put("fcmToken", token).put("appVersion", packageManager.getPackageInfo(packageName, 0).versionName), authToken)
+    }
+
+    companion object {
+        const val NOTICE_CHANNEL_ID = "school_notice_alerts_v2"
     }
 }

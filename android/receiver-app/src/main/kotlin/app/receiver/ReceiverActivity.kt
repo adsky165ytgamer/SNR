@@ -1,6 +1,7 @@
 package app.receiver
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -8,6 +9,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -38,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -83,7 +86,7 @@ class ReceiverActivity : ComponentActivity() {
     private var overlayPermissionGranted by mutableStateOf(false)
     private val receiverPreferences by lazy { getSharedPreferences("receiver_identity", Context.MODE_PRIVATE) }
     private val noticeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "notice_history") runOnUiThread { inboxRevision++ }
+        if (key == "notice_history" || key == "last_delivery_diagnostic" || key == "last_delivery_diagnostic_at" || key == "last_notification_diagnostic" || key == "last_notification_diagnostic_at") runOnUiThread { inboxRevision++ }
     }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
@@ -112,6 +115,7 @@ class ReceiverActivity : ComponentActivity() {
 
     override fun onStart() { super.onStart(); ReceiverPresentationState.markForeground(true); receiverPreferences.registerOnSharedPreferenceChangeListener(noticeListener) }
     override fun onStop() { ReceiverPresentationState.markForeground(false); receiverPreferences.unregisterOnSharedPreferenceChangeListener(noticeListener); super.onStop() }
+    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); ReceiverPresentationState.markWindowFocused(hasFocus) }
     override fun onResume() { super.onResume(); overlayPermissionGranted = NoticeOverlayController.canDrawOverOtherApps(this); inboxRevision++ }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); openInboxForNotification(intent) }
 
@@ -122,7 +126,7 @@ class ReceiverActivity : ComponentActivity() {
     @Composable private fun ReceiverShell() = Surface(Modifier.fillMaxSize(), color = Color(0xFF0E1011)) {
         Column(Modifier.fillMaxSize()) {
             ReceiverTopBar()
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            Box(Modifier.weight(1f).fillMaxWidth().imePadding()) {
                 AnimatedContent(tab, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "receiver-tab") { current ->
                     when (current) {
                         ReceiverTab.HOME -> HomeScreen()
@@ -218,6 +222,8 @@ class ReceiverActivity : ComponentActivity() {
         } }
         item { SectionCard("Connection identity", "Local installation details", Icons.Default.Fingerprint) { KeyValue("Receiver ID", identity.receiverId()); Spacer(Modifier.height(10.dp)); KeyValue("Last registered", registrationLabel()); Spacer(Modifier.height(12.dp)); OutlinedButton(onClick = { copy(identity.receiverId()) }) { Icon(Icons.Default.ContentCopy, null); Spacer(Modifier.width(8.dp)); Text("Copy receiver ID") } } }
         item { SectionCard("Cloud status", "Firebase + backend", Icons.Default.Cloud) { KeyValue("Account", authIdentity?.email ?: "Not signed in"); Spacer(Modifier.height(10.dp)); KeyValue("FCM", if (identity.lastRegisteredAt() > 0L) "Registered" else "Waiting for registration") } }
+        item { DeliveryDiagnosticCard() }
+        item { NotificationStatusCard() }
         item { OverlaySetupCard() }
         item { Button(onClick = { tab = ReceiverTab.SETTINGS }, modifier = Modifier.fillMaxWidth(), colors = actionColors()) { Text("Open connection settings", fontWeight = FontWeight.Bold) } }
     }
@@ -245,6 +251,41 @@ class ReceiverActivity : ComponentActivity() {
     @Composable private fun ConnectionActionCard() = SectionCard("Live connection", statusTitle, Icons.Default.Wifi) {
         Text(statusDetail, color = Muted, fontSize = 14.sp, lineHeight = 21.sp); Spacer(Modifier.height(12.dp))
         Button(onClick = { registerReceiver() }, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = actionColors()) { Text(if (busy) "Connecting…" else if (identity.lastRegisteredAt() > 0L) "Refresh connection" else "Connect Receiver", fontWeight = FontWeight.Bold) }
+    }
+
+    @Composable private fun DeliveryDiagnosticCard() {
+        val diagnostic = remember(inboxRevision) { identity.lastDeliveryDiagnostic() }
+        SectionCard("Last delivery status", diagnostic?.state?.label ?: "No delivery received", Icons.Default.Info) {
+            if (diagnostic == null) {
+                Text("After a real notice arrives, this card reports Inbox storage and optional overlay presentation without showing private notice text.", color = Muted, fontSize = 14.sp, lineHeight = 21.sp)
+            } else {
+                Text(diagnostic.state.detail, color = Muted, fontSize = 14.sp, lineHeight = 21.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Updated ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(diagnostic.occurredAt))}", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+
+    @Composable private fun NotificationStatusCard() {
+        val diagnostic = remember(inboxRevision) { identity.lastNotificationDiagnostic() }
+        val appNotificationsEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
+        val runtimePermissionGranted = android.os.Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        val channelImportance = (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).getNotificationChannel(NoticeMessagingService.NOTICE_CHANNEL_ID)?.importance
+        val systemState = when {
+            !runtimePermissionGranted -> "Permission required"
+            !appNotificationsEnabled -> "Disabled by Android"
+            channelImportance == NotificationManager.IMPORTANCE_NONE -> "Channel blocked"
+            else -> "Ready for next delivery"
+        }
+        SectionCard("Android notifications", diagnostic?.state?.label ?: systemState, Icons.Default.Notifications) {
+            Text(diagnostic?.state?.detail ?: "Receiver will check Android permission, app notifications, and the School notice alerts channel when the next real FCM notice arrives.", color = Muted, fontSize = 14.sp, lineHeight = 21.sp)
+            Spacer(Modifier.height(12.dp))
+            if (!runtimePermissionGranted && android.os.Build.VERSION.SDK_INT >= 33) {
+                Button(onClick = { notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }, modifier = Modifier.fillMaxWidth(), colors = actionColors()) { Text("Allow notifications", fontWeight = FontWeight.Bold) }
+            } else {
+                OutlinedButton(onClick = { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) }, modifier = Modifier.fillMaxWidth()) { Text("Open Android notification settings") }
+            }
+        }
     }
 
     @Composable private fun OverlaySetupCard() = SectionCard(

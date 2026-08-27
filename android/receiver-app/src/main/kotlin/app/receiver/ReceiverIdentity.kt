@@ -38,6 +38,30 @@ class ReceiverIdentity(context: Context) {
 
     fun lastNoticeBody(): String? = noticeHistory().firstOrNull()?.body
 
+    fun lastDeliveryDiagnostic(): ReceiverDeliveryDiagnostic? {
+        val state = preferences.getString("last_delivery_diagnostic", null)
+            ?.let(ReceiverDeliveryState::fromStorage)
+            ?: return null
+        return ReceiverDeliveryDiagnostic(state, preferences.getLong("last_delivery_diagnostic_at", 0L))
+    }
+
+    fun recordDeliveryDiagnostic(state: ReceiverDeliveryState) = preferences.edit()
+        .putString("last_delivery_diagnostic", state.storageValue)
+        .putLong("last_delivery_diagnostic_at", System.currentTimeMillis())
+        .commit()
+
+    fun lastNotificationDiagnostic(): ReceiverNotificationDiagnostic? {
+        val state = preferences.getString("last_notification_diagnostic", null)
+            ?.let(ReceiverNotificationState::fromStorage)
+            ?: return null
+        return ReceiverNotificationDiagnostic(state, preferences.getLong("last_notification_diagnostic_at", 0L))
+    }
+
+    fun recordNotificationDiagnostic(state: ReceiverNotificationState) = preferences.edit()
+        .putString("last_notification_diagnostic", state.storageValue)
+        .putLong("last_notification_diagnostic_at", System.currentTimeMillis())
+        .commit()
+
     fun noticeHistory(): List<NoticeRecord> {
         val raw = preferences.getString("notice_history", null) ?: return emptyList()
         return runCatching {
@@ -130,3 +154,39 @@ data class NoticeRecord(
     val receivedAt: Long,
     val category: NoticeCategory,
 )
+
+data class ReceiverDeliveryDiagnostic(
+    val state: ReceiverDeliveryState,
+    val occurredAt: Long,
+)
+
+data class ReceiverNotificationDiagnostic(
+    val state: ReceiverNotificationState,
+    val occurredAt: Long,
+)
+
+enum class ReceiverDeliveryState(val storageValue: String, val label: String, val detail: String) {
+    NOTICE_SAVED("NOTICE_SAVED", "Saved to Inbox", "The real notice was persisted on this Receiver."),
+    OVERLAY_NOT_REQUESTED("OVERLAY_NOT_REQUESTED", "Overlay not requested", "Homework and News use the standard notification pathway."),
+    OVERLAY_FOREGROUND_DEFERRED("OVERLAY_FOREGROUND_DEFERRED", "Overlay deferred while Receiver is focused", "The notice remains in Inbox and uses the standard notification pathway while Receiver is the active screen."),
+    OVERLAY_PERMISSION_UNAVAILABLE("OVERLAY_PERMISSION_UNAVAILABLE", "Overlay permission unavailable", "Android special access is disabled; the normal notification remains the fallback."),
+    OVERLAY_DUPLICATE_SUPPRESSED("OVERLAY_DUPLICATE_SUPPRESSED", "Duplicate overlay skipped", "The same notice ID already requested an overlay."),
+    OVERLAY_DISPLAYED("OVERLAY_DISPLAYED", "Overlay displayed", "The Notice overlay was attached above other apps."),
+    OVERLAY_FAILED("OVERLAY_FAILED", "Overlay failed safely", "The notice remains in Inbox and the normal notification remains the fallback.");
+
+    companion object {
+        fun fromStorage(value: String): ReceiverDeliveryState? = entries.firstOrNull { it.storageValue == value }
+    }
+}
+
+enum class ReceiverNotificationState(val storageValue: String, val label: String, val detail: String) {
+    POSTED("POSTED", "Notification posted", "Notice Receiver asked Android to show the local notice alert."),
+    RUNTIME_PERMISSION_DISABLED("RUNTIME_PERMISSION_DISABLED", "Notification permission disabled", "Android notification permission is off for Notice Receiver."),
+    APP_NOTIFICATIONS_DISABLED("APP_NOTIFICATIONS_DISABLED", "App notifications disabled", "Android app-level notifications are off for Notice Receiver."),
+    CHANNEL_BLOCKED("CHANNEL_BLOCKED", "Notice channel blocked", "The Android School notice alerts channel is blocked or silenced."),
+    POST_FAILED("POST_FAILED", "Notification post failed", "Android rejected the local notification request. The notice remains in Inbox.");
+
+    companion object {
+        fun fromStorage(value: String): ReceiverNotificationState? = entries.firstOrNull { it.storageValue == value }
+    }
+}
