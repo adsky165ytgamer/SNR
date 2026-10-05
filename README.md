@@ -1,25 +1,62 @@
 # NoticeFlow Receiver
 
-> **v1.1.1 Alpha Material 3** · Created by **ad_vibe_dev** · **Proprietary software — not open source**
+> **Testing build · `app.receiver` · Proprietary software**
 
-NoticeFlow Receiver turns an Android phone, school display, office tablet, or classroom device into a named destination for live school notices. Its application package is `app.receiver`.
+NoticeFlow Receiver turns an Android phone, school display, office tablet, or classroom device into a named destination for live school notices.
 
-## v1.1.1 Alpha Material 3 experience
+## Current Home screen
 
-This official signed update preserves the live Firebase Email/Password authentication, named-device registration, FCM receipt, and local inbox contracts while refining Material 3 touch targets, setup feedback, motion, navigation consistency, and display-cutout/navigation-bar safety. The version is `1.1.1-alpha-material3` with version code `4`; obtain the matching APK or AAB from the [v1.1.1 Alpha Material 3 release](https://github.com/adsky165ytgamer/SNR/releases/tag/v1.1.1-alpha-material3).
+The Home screen is the Receiver’s live status dashboard. It shows the device name, Firebase account state, direct Firestore connection state, registration time, inbox summary, and the next useful setup action. Setup separates account access, device naming, and connection; Inbox stores received notices locally; Settings exposes connection and account controls.
 
-The Receiver has been rebuilt as a multi-section workspace rather than a single long form. A first-run introduction explains how account access, device naming, and live connection fit together. After onboarding, the application provides **Home**, **Setup**, **Inbox**, and **About** sections. Home shows the device’s next useful action, Setup separates authentication, naming, and registration, Inbox stores received notices locally, and About records the version, creator, and license status.
+The Home screen and setup source is `android/receiver-app/src/main/kotlin/app/receiver/ReceiverActivity.kt`.
 
-The device name is persistent and is sent during live registration so Sender users choose real locations such as Front Office, Class 8A, or Library Display. The Receiver uses Firebase Email/Password authentication, receives a Firebase ID token, obtains a real FCM token, registers with the backend, refreshes liveness, and keeps a local inbox.
+## Direct Firebase architecture
 
-## Install and configure
+The Receiver connects directly to the `school-notics` Firebase project:
 
-Download the current APK from [Releases](https://github.com/adsky165ytgamer/SNR/releases). Install it on the target Android device, create or use an Email/Password account enabled in the original `school-notics` Firebase project, name the device, then connect it to the permanent HTTPS backend.
+- Firebase Authentication handles Email/Password and Google Sign-In.
+- The Receiver writes its document to `receivers/{receiverId}` in Firestore.
+- It listens to `receivers/{receiverId}/notices` using a live Firestore listener.
+- New notices are persisted locally and shown as Android notifications.
+- Heartbeats update the Receiver document directly through Firestore.
+- Fastify, HTTP `BackendClient`, Cloud Run, Firebase Admin SDK, FCM registration, and the old messaging service were removed.
+- Firestore rules are in `firebase/firestore.rules`.
 
-To build locally, copy `gradle.properties.example` to `gradle.properties` and add the permanent backend URL plus public Firebase client metadata. Never commit `google-services.json`, local Gradle properties, keystores, Firebase Admin credentials, FCM server credentials, or private keys.
+The direct data client is `android/receiver-app/src/main/kotlin/app/receiver/DirectFirebaseStore.kt`; local notification presentation is in `DirectNoticeNotifier.kt`.
 
-The official release key SHA-1 for `app.receiver` is `E0:18:38:EB:3F:58:B2:D3:C9:0A:7F:E7:18:45:1E:E5:E8:0D:D8:40`. Register it in the Google/Firebase Android OAuth configuration before attempting native Google sign-in. Email/Password remains the tested primary sign-in route until a production Web OAuth client ID is configured.
+## Firebase configuration
+
+`google-services.json` is intentionally ignored by Git. For a local build, place the Firebase Android configuration containing the `app.receiver` client at:
+
+```text
+android/receiver-app/google-services.json
+```
+
+The Google web OAuth client is configured in the build as:
+
+```text
+763216367314-7ikindb4e0cabej1ut4rhj7n0ejeke6q.apps.googleusercontent.com
+```
+
+Enable **Google** under Firebase Authentication, register the SHA-1 certificate used to sign the APK, and publish `firebase/firestore.rules` in the Firebase Console. For the current sandbox debug APK, the SHA-1 is:
+
+```text
+4E:5E:53:54:94:3D:8C:5A:31:9F:A4:40:2B:27:D9:17:58:09:23:72
+```
+
+## Build
+
+```bash
+cd android
+../gradle-8.12/bin/gradle :receiver-app:assembleDebug
+```
+
+The current testing APK is published in the GitHub testing release. The package is `app.receiver`; the build targets SDK 36.
+
+## Testing release
+
+See [`RELEASE_NOTES_TESTING.md`](RELEASE_NOTES_TESTING.md) for the complete Receiver change list, removed components, Firestore rules requirement, Google Auth requirements, and APK checksum.
 
 ## License
 
-This repository and application are proprietary. No permission is granted to copy, redistribute, reverse engineer, modify, publish, or use the source or binaries without written authorization from **ad_vibe_dev**.
+This repository and application are proprietary. Do not commit `google-services.json`, service-account credentials, keystores, private keys, or local Gradle properties.
