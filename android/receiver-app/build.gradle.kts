@@ -14,8 +14,7 @@ android {
         targetSdk = 36
         versionCode = 9
         versionName = "1.1.6-beta-authentication"
-        buildConfigField("String", "BACKEND_BASE_URL", "\"${providers.gradleProperty("BACKEND_BASE_URL").getOrElse("https://replace-with-your-backend.example").trimEnd('/')}\"")
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${providers.gradleProperty("GOOGLE_WEB_CLIENT_ID").getOrElse("replace-with-production-web-client-id")}\"")
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${providers.gradleProperty("GOOGLE_WEB_CLIENT_ID").getOrElse("763216367314-7ikindb4e0cabej1ut4rhj7n0ejeke6q.apps.googleusercontent.com")}\"")
         buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${providers.gradleProperty("FIREBASE_PROJECT_ID").getOrElse("school-notics")}\"")
         buildConfigField("String", "FIREBASE_APPLICATION_ID", "\"${providers.gradleProperty("FIREBASE_APPLICATION_ID").getOrElse("1:763216367314:android:9af9287a9df5aeddc4670b")}\"")
         buildConfigField("String", "FIREBASE_API_KEY", "\"${providers.gradleProperty("FIREBASE_API_KEY").getOrElse("replace-with-firebase-api-key")}\"")
@@ -60,7 +59,7 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation(platform("com.google.firebase:firebase-bom:34.17.0"))
     implementation("com.google.firebase:firebase-auth")
-    implementation("com.google.firebase:firebase-messaging")
+    implementation("com.google.firebase:firebase-firestore")
     implementation("androidx.credentials:credentials:1.3.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")

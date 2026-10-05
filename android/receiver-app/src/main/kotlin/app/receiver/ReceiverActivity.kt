@@ -46,13 +46,11 @@ import app.receiver.auth.AuthenticatedIdentity
 import app.receiver.auth.FirebaseBootstrap
 import app.receiver.auth.GoogleAuthSession
 import com.google.firebase.FirebaseApp
-import com.google.firebase.installations.FirebaseInstallations
-import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -81,6 +79,7 @@ class ReceiverActivity : ComponentActivity() {
     private var tab by mutableStateOf(ReceiverTab.HOME)
     private var inboxRevision by mutableIntStateOf(0)
     private val receiverPreferences by lazy { getSharedPreferences("receiver_identity", Context.MODE_PRIVATE) }
+    private var firestoreNoticeListener: ListenerRegistration? = null
     private val noticeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "notice_history") runOnUiThread { inboxRevision++ }
     }
@@ -103,13 +102,14 @@ class ReceiverActivity : ComponentActivity() {
             if (authIdentity != null) {
                 statusTitle = "Account connected"
                 statusDetail = if (identity.lastRegisteredAt() > 0L) "This Receiver is registered and ready for notices." else "Name this Receiver and connect it."
+                if (identity.lastRegisteredAt() > 0L) startDirectNoticeListener()
             }
         }
         openInboxForNotification(intent)
     }
 
     override fun onStart() { super.onStart(); receiverPreferences.registerOnSharedPreferenceChangeListener(noticeListener) }
-    override fun onStop() { receiverPreferences.unregisterOnSharedPreferenceChangeListener(noticeListener); super.onStop() }
+    override fun onStop() { firestoreNoticeListener?.remove(); firestoreNoticeListener = null; receiverPreferences.unregisterOnSharedPreferenceChangeListener(noticeListener); super.onStop() }
     override fun onResume() { super.onResume(); inboxRevision++ }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); openInboxForNotification(intent) }
 
@@ -215,7 +215,7 @@ class ReceiverActivity : ComponentActivity() {
             Spacer(Modifier.height(10.dp)); Button(onClick = { saveDeviceName() }, modifier = Modifier.fillMaxWidth(), colors = actionColors()) { Text("Save device name", fontWeight = FontWeight.Bold) }
         } }
         item { SectionCard("Connection identity", "Local installation details", Icons.Default.Fingerprint) { KeyValue("Receiver ID", identity.receiverId()); Spacer(Modifier.height(10.dp)); KeyValue("Last registered", registrationLabel()); Spacer(Modifier.height(12.dp)); OutlinedButton(onClick = { copy(identity.receiverId()) }) { Icon(Icons.Default.ContentCopy, null); Spacer(Modifier.width(8.dp)); Text("Copy receiver ID") } } }
-        item { SectionCard("Cloud status", "Firebase + backend", Icons.Default.Cloud) { KeyValue("Account", authIdentity?.email ?: "Not signed in"); Spacer(Modifier.height(10.dp)); KeyValue("FCM", if (identity.lastRegisteredAt() > 0L) "Registered" else "Waiting for registration") } }
+        item { SectionCard("Cloud status", "Direct Firebase connection", Icons.Default.Cloud) { KeyValue("Account", authIdentity?.email ?: "Not signed in"); Spacer(Modifier.height(10.dp)); KeyValue("Firestore", if (identity.lastRegisteredAt() > 0L) "Listening for notices" else "Waiting for registration") } }
         item { Button(onClick = { tab = ReceiverTab.SETTINGS }, modifier = Modifier.fillMaxWidth(), colors = actionColors()) { Text("Open connection settings", fontWeight = FontWeight.Bold) } }
     }
 
@@ -255,12 +255,28 @@ class ReceiverActivity : ComponentActivity() {
         val name = nameValue.trim(); if (name.isBlank()) { tab = ReceiverTab.DEVICE; statusTitle = "Name required"; statusDetail = "Give the Receiver a recognizable name first."; return@launch }
         busy = true
         try {
-            identity.setName(name); nameValue = name; check(BackendClient.isConfigured()) { "A reachable HTTPS backend URL has not been configured." }; withContext(Dispatchers.IO) { BackendClient.get("/health") }
+            identity.setName(name); nameValue = name
             FirebaseBootstrap.ensureInitialized(this@ReceiverActivity); check(FirebaseApp.getApps(this@ReceiverActivity).isNotEmpty()) { "Firebase configuration is missing for app.receiver." }
-            check(FirebaseInstallations.getInstance().id.await().isNotBlank()) { "Firebase could not create a device installation." }; val token = FirebaseMessaging.getInstance().token.await(); check(token.isNotBlank()) { "Firebase returned an empty FCM token." }
-            withContext(Dispatchers.IO) { BackendClient.post("/api/v1/receivers/register", JSONObject().put("receiverId", identity.receiverId()).put("name", name).put("fcmToken", token).put("appVersion", packageManager.getPackageInfo(packageName, 0).versionName), authIdentity!!.idToken) }
-            identity.recordRegistered(); statusTitle = "Receiver connected"; statusDetail = "$name is registered and ready for notices."; tab = ReceiverTab.HOME
+            withContext(Dispatchers.IO) { DirectFirebaseStore.registerReceiver(identity.receiverId(), authIdentity!!.uid, name, packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()) }
+            identity.recordRegistered(); startDirectNoticeListener(); statusTitle = "Receiver connected"; statusDetail = "$name is registered and listening directly to Firebase."; tab = ReceiverTab.HOME
         } catch (error: Throwable) { statusTitle = "Connection failed"; statusDetail = error.message ?: "The connection stopped before registration completed."; tab = ReceiverTab.SETTINGS } finally { busy = false }
+    }
+
+    private fun startDirectNoticeListener() {
+        firestoreNoticeListener?.remove()
+        FirebaseBootstrap.ensureInitialized(this)
+        firestoreNoticeListener = DirectFirebaseStore.listenForNotices(identity.receiverId(), { notice ->
+            lifecycleScope.launch(Dispatchers.IO) {
+                identity.recordNotice(notice.title, notice.body, notice.id)
+                DirectNoticeNotifier.show(applicationContext, notice)
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    inboxRevision++
+                    tab = ReceiverTab.INBOX
+                }
+            }
+        }, { error ->
+            runOnUiThread { statusTitle = "Firebase listener error"; statusDetail = error.message ?: "Direct Firestore listening failed." }
+        })
     }
 
     private fun registrationLabel() = if (identity.lastRegisteredAt() == 0L) "Never" else DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(identity.lastRegisteredAt()))
