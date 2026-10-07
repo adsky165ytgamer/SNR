@@ -39,6 +39,36 @@ object DirectFirebaseStore {
         ).await()
     }
 
+    suspend fun updateFcmToken(receiverId: String, token: String) {
+        firestore.collection("receivers").document(receiverId).update(
+            mapOf(
+                "fcmToken" to token,
+                "fcmUpdatedAt" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
+    }
+
+    suspend fun fetchRecentNotices(receiverId: String, ownerUid: String): List<NoticeRecord> {
+        return firestore.collection("receivers").document(receiverId).collection("notices")
+            .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(20)
+            .get()
+            .await()
+            .documents
+            .mapNotNull { document ->
+                if (document.getString("senderUid").isNullOrBlank()) return@mapNotNull null
+                val title = document.getString("title")?.trim().orEmpty()
+                val body = document.getString("body")?.trim().orEmpty()
+                if (title.isBlank() || body.isBlank()) return@mapNotNull null
+                NoticeRecord(
+                    id = document.id,
+                    title = title,
+                    body = body,
+                    receivedAt = document.getTimestamp("createdAt")?.toDate()?.time ?: System.currentTimeMillis(),
+                )
+            }
+    }
+
     fun listenForNotices(receiverId: String, onNotice: (NoticeRecord) -> Unit, onError: (Exception) -> Unit): ListenerRegistration {
         return firestore.collection("receivers").document(receiverId).collection("notices")
             .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.ASCENDING)
