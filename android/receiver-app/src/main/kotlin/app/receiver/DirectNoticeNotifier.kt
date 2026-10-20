@@ -6,8 +6,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 
 object DirectNoticeNotifier {
     fun show(context: Context, notice: NoticeRecord) {
@@ -38,5 +40,13 @@ object DirectNoticeNotifier {
             .apply { if (pendingIntent != null) setContentIntent(pendingIntent) }
             .build()
         NotificationManagerCompat.from(context).notify(notice.id.hashCode(), notification)
+        if (Settings.canDrawOverlays(context)) {
+            val overlayIntent = Intent(context, NoticeOverlayService::class.java).apply {
+                putExtra(NoticeOverlayService.EXTRA_ID, notice.id)
+                putExtra(NoticeOverlayService.EXTRA_TITLE, notice.title)
+                putExtra(NoticeOverlayService.EXTRA_BODY, notice.body)
+            }
+            runCatching { ContextCompat.startForegroundService(context, overlayIntent) }
+        }
     }
 }

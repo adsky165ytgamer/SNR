@@ -12,8 +12,8 @@ android {
         applicationId = "app.receiver"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.1.6-beta-authentication"
+        versionCode = 10
+        versionName = "1.1.8-beta-ui-overhaul"
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${providers.gradleProperty("GOOGLE_WEB_CLIENT_ID").getOrElse("763216367314-7ikindb4e0cabej1ut4rhj7n0ejeke6q.apps.googleusercontent.com")}\"")
         buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${providers.gradleProperty("FIREBASE_PROJECT_ID").getOrElse("school-notics")}\"")
         buildConfigField("String", "FIREBASE_APPLICATION_ID", "\"${providers.gradleProperty("FIREBASE_APPLICATION_ID").getOrElse("1:763216367314:android:9af9287a9df5aeddc4670b")}\"")

@@ -25,7 +25,7 @@ class NoticeOverlayService : Service() {
         val noticeId = intent?.getStringExtra(EXTRA_ID).orEmpty()
         if (title.isBlank() || body.isBlank() || !Settings.canDrawOverlays(this)) return START_NOT_STICKY
         startForeground(NOTIFICATION_ID, NotificationCompat.Builder(this, "school_notice_direct")
-            .setSmallIcon(R.drawable.ic_notice_notification)
+            .setSmallIcon(applicationInfo.icon)
             .setContentTitle("NoticeFlow quick notice")
             .setContentText(title)
             .setOngoing(true)
